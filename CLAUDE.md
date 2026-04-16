@@ -18,6 +18,12 @@ grayscale), and serves them to a TRMNL e-paper display
 via webhook. Intended to run on a Raspberry Pi (host
 name `malina`).
 
+**New here?** Read
+[`docs/developer/HANDOFF.md`](docs/developer/HANDOFF.md)
+first — it contains open questions, recommended first
+steps, and user preferences that are not derivable from
+the code.
+
 - **Stack**: Rust/Axum backend, Svelte 5/Vite frontend
   (control panel), static e-ink image renderer
 - **Target platforms**: Linux (primary, for RPi

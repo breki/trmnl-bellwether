@@ -1,3 +1,5 @@
+pub mod config;
+
 /// Returns the version string from Cargo.toml.
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

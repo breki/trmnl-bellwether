@@ -1,0 +1,16 @@
+[windy]
+api_key_file = "windy_key.txt"
+lat = 46.05
+lon = 14.51
+model = "gfs"
+parameters = ["temp", "wind", "precip"]
+
+[trmnl]
+mode = "byos"
+public_image_base = "http://malina.local:3000/images"
+
+[render]
+width = 800
+height = 480
+bit_depth = 1
+timezone = "Europe/Ljubljana"

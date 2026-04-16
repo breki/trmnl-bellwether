@@ -1,0 +1,10 @@
+[windy]
+api_key_file = "windy_key.txt"
+lat = 46.05
+lon = 14.51
+
+[trmnl]
+mode = "webhook"
+url = "https://trmnl.com/api/custom_plugins/abc123"
+
+[render]

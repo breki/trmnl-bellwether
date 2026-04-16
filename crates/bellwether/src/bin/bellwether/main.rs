@@ -1,14 +1,21 @@
+use std::path::PathBuf;
+
+use anyhow::Context;
+use bellwether::config::Config;
 use clap::Parser;
 
 #[derive(Parser)]
 #[command(name = "bellwether", version, about)]
 struct Cli {
-    /// Example flag
+    /// Path to the TOML config file.
+    #[arg(short, long, value_name = "FILE")]
+    config: Option<PathBuf>,
+
+    /// Enable verbose output.
     #[arg(short, long)]
     verbose: bool,
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -16,9 +23,14 @@ fn main() -> anyhow::Result<()> {
         println!("verbose mode enabled");
     }
 
-    println!("Hello from bellwether!");
-
-    // TODO: add your application logic here
+    if let Some(path) = &cli.config {
+        let cfg = Config::load(path).with_context(|| {
+            format!("loading config from {}", path.display())
+        })?;
+        println!("loaded config: {cfg}");
+    } else {
+        println!("Hello from bellwether!");
+    }
 
     Ok(())
 }

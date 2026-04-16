@@ -1,0 +1,33 @@
+[package]
+name = "rustbase-web"
+version = "0.1.0"
+edition = "2024"
+# TODO: update these fields for your project
+description = "Web frontend for rustbase"
+license = "MIT"
+repository = "https://github.com/breki/rustbase"
+readme = "../../README.md"
+default-run = "rustbase-web"
+keywords = ["cli", "web"]
+categories = ["command-line-utilities", "web-programming"]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "rustbase-web"
+path = "src/main.rs"
+
+[dependencies]
+rustbase = { path = "../rustbase" }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tower = "0.5"

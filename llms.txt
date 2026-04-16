@@ -1,0 +1,71 @@
+# rustbase
+
+> Opinionated Rust project template with Claude Code
+> integration, quality gates, and CI/CD.
+
+## Project Structure
+
+Cargo workspace with three crates:
+
+- `crates/rustbase` — Core library and CLI binary
+- `crates/rustbase-web` — Axum web server (optional)
+- `xtask` — Build automation (not published)
+
+Frontend: Svelte 5 + Vite in `frontend/` (optional).
+
+## Build Commands
+
+```
+cargo xtask validate          # fmt + clippy + tests + coverage + dupes
+cargo xtask test [filter]     # tests only
+cargo xtask clippy            # lint only
+cargo xtask fmt               # format code
+cargo xtask coverage          # coverage check (>=90%)
+cargo xtask dupes             # code duplication check (<=6%)
+```
+
+## Web Server
+
+The `rustbase-web` binary serves the Svelte frontend
+and exposes a JSON API:
+
+```
+rustbase-web [OPTIONS]
+
+Options:
+  -p, --port <PORT>          Port [default: 3000]
+  -b, --bind <ADDR>          Bind address [default: 127.0.0.1]
+  -f, --frontend <PATH>      Frontend dist dir [default: frontend/dist]
+```
+
+### API Endpoints
+
+| Method | Path           | Description            |
+|--------|----------------|------------------------|
+| GET    | /health        | Health check ("OK")    |
+| GET    | /api/status    | Version and status     |
+| GET    | /api/greeting  | Sample greeting        |
+
+All non-API routes fall back to `index.html` for SPA
+client-side routing.
+
+## Quality Gates
+
+- `#[deny(warnings)]`, `#[forbid(unsafe_code)]`
+- Clippy pedantic + perf
+- 90% line coverage minimum (85% per module)
+- Code duplication <= 6% (production code, tests excluded)
+- `cargo fmt` enforced
+
+## Conventions
+
+- Conventional Commits (`feat`, `fix`, `chore`, etc.)
+- Semantic Versioning (version in `crates/rustbase/Cargo.toml`)
+- Keep a Changelog format in `CHANGELOG.md`
+- LF line endings, 80-char line width
+- AI-Generated footer in commit messages
+
+## Removing the Web App
+
+Delete `crates/rustbase-web/`, `frontend/`, and remove
+`"crates/rustbase-web"` from `Cargo.toml` members.

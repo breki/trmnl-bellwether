@@ -1,0 +1,5 @@
+# mise configuration
+# https://mise.jdx.dev/
+
+[tools]
+node = "22"

@@ -1,0 +1,14 @@
+# Template sync metadata -- do not edit manually.
+# Managed by the /template-sync command.
+
+[template]
+repo = "https://github.com/breki/rustbase"
+
+# Commit SHA this project was created from.
+created-from = "87ec59d50b88e91c33391dc8088f4dd3087931be"
+
+# Commit SHA last synced to.
+last-synced = "87ec59d50b88e91c33391dc8088f4dd3087931be"
+
+# Human-readable version at last sync.
+last-synced-version = "0.2.0"

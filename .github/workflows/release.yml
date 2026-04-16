@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: ci
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            archive: zip
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Validate tag
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' is not valid semver"
+            exit 1
+          fi
+
+      - name: Install Rust
+        run: |
+          rustup show
+          rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: >-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-${{
+            hashFiles('**/Cargo.lock') }}
+          restore-keys: >-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Build frontend
+        shell: bash
+        run: |
+          cd frontend && npm install && npm run build
+
+      - name: Build release binaries
+        run: cargo build --release --locked --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+      - name: Determine archive name
+        id: archive
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          NAME="rustbase-${VERSION}-${TARGET}"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        env:
+          STAGING: ${{ steps.archive.outputs.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir "$STAGING"
+          cp "target/${TARGET}/release/rustbase" "$STAGING/"
+          cp "target/${TARGET}/release/rustbase-web" "$STAGING/"
+          cp -r frontend/dist "$STAGING/frontend-dist"
+          cp LICENSE "$STAGING/"
+          tar czf "${STAGING}.tar.gz" "$STAGING"
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        env:
+          STAGING: ${{ steps.archive.outputs.name }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          New-Item -ItemType Directory -Path $env:STAGING
+          Copy-Item "target/$env:TARGET/release/rustbase.exe" "$env:STAGING/"
+          Copy-Item "target/$env:TARGET/release/rustbase-web.exe" "$env:STAGING/"
+          Copy-Item -Recurse "frontend/dist" "$env:STAGING/frontend-dist"
+          Copy-Item "LICENSE" "$env:STAGING/"
+          Compress-Archive -Path $env:STAGING -DestinationPath "$env:STAGING.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.archive.outputs.name }}
+          path: >-
+            ${{ steps.archive.outputs.name }}.${{
+            matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "^## \\[" ver "\\]") found=1
+              next
+            }
+            found { print }
+          ' CHANGELOG.md)
+          echo "$NOTES" > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::No release notes found for $VERSION in CHANGELOG.md"
+            exit 1
+          fi
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd artifacts
+          shopt -s nullglob
+          files=(*.tar.gz *.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No archive files found"
+            exit 1
+          fi
+          sha256sum "${files[@]}" > SHA256SUMS
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME"
+          --title "$GITHUB_REF_NAME"
+          --notes-file release_notes.md
+          artifacts/*

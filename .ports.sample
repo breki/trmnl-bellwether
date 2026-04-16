@@ -1,0 +1,12 @@
+# Port Configuration
+# Copy this file to .ports and customize.
+#
+# This allows multiple worktrees or instances to run
+# simultaneously without port conflicts.
+#
+# Format: key=value (no quotes)
+
+# Backend port (used by Axum server and Vite proxy)
+backend_port=3000
+
+# If this file doesn't exist, default port 3000 is used.

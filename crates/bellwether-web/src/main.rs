@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 mod api;
 
 #[derive(Parser)]
-#[command(name = "rustbase-web", version, about)]
+#[command(name = "bellwether-web", version, about)]
 struct Cli {
     /// Port to listen on
     #[arg(short, long, default_value = "3000")]
@@ -26,7 +26,7 @@ struct Cli {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(
-            |_| EnvFilter::new("rustbase_web=debug,tower_http=debug"),
+            |_| EnvFilter::new("bellwether_web=debug,tower_http=debug"),
         ))
         .init();
 

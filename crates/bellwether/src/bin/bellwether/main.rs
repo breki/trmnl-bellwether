@@ -1,7 +1,7 @@
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "rustbase", version, about)]
+#[command(name = "bellwether", version, about)]
 struct Cli {
     /// Example flag
     #[arg(short, long)]
@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
         println!("verbose mode enabled");
     }
 
-    println!("Hello from rustbase!");
+    println!("Hello from bellwether!");
 
     // TODO: add your application logic here
 

@@ -5,10 +5,10 @@
 repo = "https://github.com/breki/rustbase"
 
 # Commit SHA this project was created from.
-created-from = "87ec59d50b88e91c33391dc8088f4dd3087931be"
+created-from = "076cf4480dd763797799095ad5e97af900291cfb"
 
 # Commit SHA last synced to.
-last-synced = "87ec59d50b88e91c33391dc8088f4dd3087931be"
+last-synced = "076cf4480dd763797799095ad5e97af900291cfb"
 
 # Human-readable version at last sync.
-last-synced-version = "0.2.0"
+last-synced-version = "0.4.0"

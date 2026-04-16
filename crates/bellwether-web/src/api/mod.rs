@@ -50,7 +50,7 @@ struct StatusResponse {
 async fn status() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "ready",
-        version: rustbase::version().into(),
+        version: bellwether::version().into(),
     })
 }
 
@@ -61,7 +61,7 @@ struct GreetingResponse {
 
 async fn greeting() -> Json<GreetingResponse> {
     Json(GreetingResponse {
-        message: "Hello from rustbase!",
+        message: "Hello from bellwether!",
     })
 }
 

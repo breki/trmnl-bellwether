@@ -74,11 +74,11 @@ function Invoke-Dev {
     # built binary rather than a cargo shim (which on Windows
     # would orphan the web server process on Ctrl+C).
     Write-Host "Building backend..."
-    cargo build -p rustbase-web
+    cargo build -p bellwether-web
     if ($LASTEXITCODE -ne 0) { exit 4 }
 
     $backendPort = Get-BackendPort
-    $backendExe = "target/debug/rustbase-web.exe"
+    $backendExe = "target/debug/bellwether-web.exe"
     Write-Host "Starting backend on :$backendPort and frontend on :5173..."
     Write-Host "Open http://localhost:5173"
     Write-Host "Press Ctrl+C to stop; backend will be terminated automatically."

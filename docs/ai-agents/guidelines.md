@@ -42,7 +42,7 @@ FAILED: 2 of 104 tests failed
 
   inventory::tests::rejects_duplicate FAILED
     assertion `left == right` failed
-    at crates/rustbase/src/lib.rs:45
+    at crates/bellwether/src/lib.rs:45
 ```
 
 ### Stepwise Progress for Multi-Step Operations

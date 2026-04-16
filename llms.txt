@@ -1,17 +1,20 @@
-# rustbase
+# trmnl-bellwether
 
-> Opinionated Rust project template with Claude Code
-> integration, quality gates, and CI/CD.
+> TRMNL e-ink dashboard server: aggregates Home
+> Assistant + Windy weather and serves rendered e-ink
+> images to a TRMNL display via webhook.
 
 ## Project Structure
 
 Cargo workspace with three crates:
 
-- `crates/rustbase` — Core library and CLI binary
-- `crates/rustbase-web` — Axum web server (optional)
+- `crates/bellwether` — Core library and CLI binary
+- `crates/bellwether-web` — Axum web server (webhook +
+  control panel, optional)
 - `xtask` — Build automation (not published)
 
-Frontend: Svelte 5 + Vite in `frontend/` (optional).
+Frontend: Svelte 5 + Vite in `frontend/` (optional,
+intended for a control panel).
 
 ## Build Commands
 
@@ -26,11 +29,11 @@ cargo xtask dupes             # code duplication check (<=6%)
 
 ## Web Server
 
-The `rustbase-web` binary serves the Svelte frontend
+The `bellwether-web` binary serves the Svelte frontend
 and exposes a JSON API:
 
 ```
-rustbase-web [OPTIONS]
+bellwether-web [OPTIONS]
 
 Options:
   -p, --port <PORT>          Port [default: 3000]
@@ -40,11 +43,11 @@ Options:
 
 ### API Endpoints
 
-| Method | Path           | Description            |
-|--------|----------------|------------------------|
-| GET    | /health        | Health check ("OK")    |
-| GET    | /api/status    | Version and status     |
-| GET    | /api/greeting  | Sample greeting        |
+| Method | Path           | Description                 |
+|--------|----------------|-----------------------------|
+| GET    | /health        | Health check (JSON)         |
+| GET    | /api/status    | Version and status          |
+| GET    | /api/greeting  | Sample greeting (scaffold)  |
 
 All non-API routes fall back to `index.html` for SPA
 client-side routing.
@@ -60,12 +63,13 @@ client-side routing.
 ## Conventions
 
 - Conventional Commits (`feat`, `fix`, `chore`, etc.)
-- Semantic Versioning (version in `crates/rustbase/Cargo.toml`)
+- Semantic Versioning (version in
+  `crates/bellwether/Cargo.toml`)
 - Keep a Changelog format in `CHANGELOG.md`
 - LF line endings, 80-char line width
 - AI-Generated footer in commit messages
 
 ## Removing the Web App
 
-Delete `crates/rustbase-web/`, `frontend/`, and remove
-`"crates/rustbase-web"` from `Cargo.toml` members.
+Delete `crates/bellwether-web/`, `frontend/`, and remove
+`"crates/bellwether-web"` from `Cargo.toml` members.

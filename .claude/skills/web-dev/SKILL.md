@@ -125,7 +125,7 @@ port. Default is 3000. The `.ports` file uses
 ### Version Injection
 
 `__APP_VERSION__` is injected at build time from
-`crates/rustbase/Cargo.toml`. Access in Svelte:
+`crates/bellwether/Cargo.toml`. Access in Svelte:
 
 ```svelte
 <span>{__APP_VERSION__}</span>
@@ -166,7 +166,7 @@ test("API works", async ({ request }) => {
 
 `playwright.config.js` reads `.ports` file (same
 format as Vite). It starts:
-1. Backend: `cargo run -p rustbase-web -- --port N`
+1. Backend: `cargo run -p bellwether-web -- --port N`
 2. Frontend: `cd frontend && npm run dev`
 
 ## Dev Workflow
@@ -175,7 +175,7 @@ format as Vite). It starts:
 
 ```bash
 # Terminal 1: backend
-cargo run -p rustbase-web
+cargo run -p bellwether-web
 
 # Terminal 2: frontend (hot reload)
 cd frontend && npm run dev
@@ -197,8 +197,8 @@ npx playwright test --ui
 
 ```bash
 cd frontend && npm run build
-cargo build --release -p rustbase-web
-# Serve: ./target/release/rustbase-web -f frontend/dist
+cargo build --release -p bellwether-web
+# Serve: ./target/release/bellwether-web -f frontend/dist
 ```
 
 ## Common Issues

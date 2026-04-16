@@ -14,7 +14,7 @@ describe("App", () => {
     );
     render(App);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
-      "rustbase",
+      "bellwether",
     );
   });
 });

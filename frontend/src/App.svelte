@@ -37,8 +37,8 @@
 </script>
 
 <main>
-  <h1>rustbase</h1>
-  <p class="subtitle">Your app is running.</p>
+  <h1>bellwether</h1>
+  <p class="subtitle">TRMNL dashboard server.</p>
 
   <div class="card">
     <h2>API Status</h2>
@@ -58,7 +58,7 @@
       <li>Edit <code>frontend/src/App.svelte</code></li>
       <li>
         Add API routes in
-        <code>crates/rustbase-web/src/api/mod.rs</code>
+        <code>crates/bellwether-web/src/api/mod.rs</code>
       </li>
       <li>
         Run <code>npm run dev</code> in

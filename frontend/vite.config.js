@@ -7,7 +7,7 @@ const rootDir = resolve(import.meta.dirname, "..");
 
 // Read app version from Cargo.toml (single source of truth)
 function getAppVersion() {
-  const cargoToml = resolve(rootDir, "crates", "rustbase", "Cargo.toml");
+  const cargoToml = resolve(rootDir, "crates", "bellwether", "Cargo.toml");
   const content = readFileSync(cargoToml, "utf-8");
   const match = content.match(/^version\s*=\s*"([^"]+)"/m);
   if (!match) {

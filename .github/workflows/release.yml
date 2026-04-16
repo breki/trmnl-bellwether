@@ -88,7 +88,7 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           VERSION="${GITHUB_REF_NAME}"
-          NAME="rustbase-${VERSION}-${TARGET}"
+          NAME="bellwether-${VERSION}-${TARGET}"
           echo "name=${NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Package (tar.gz)
@@ -99,8 +99,8 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           mkdir "$STAGING"
-          cp "target/${TARGET}/release/rustbase" "$STAGING/"
-          cp "target/${TARGET}/release/rustbase-web" "$STAGING/"
+          cp "target/${TARGET}/release/bellwether" "$STAGING/"
+          cp "target/${TARGET}/release/bellwether-web" "$STAGING/"
           cp -r frontend/dist "$STAGING/frontend-dist"
           cp LICENSE "$STAGING/"
           tar czf "${STAGING}.tar.gz" "$STAGING"
@@ -113,8 +113,8 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           New-Item -ItemType Directory -Path $env:STAGING
-          Copy-Item "target/$env:TARGET/release/rustbase.exe" "$env:STAGING/"
-          Copy-Item "target/$env:TARGET/release/rustbase-web.exe" "$env:STAGING/"
+          Copy-Item "target/$env:TARGET/release/bellwether.exe" "$env:STAGING/"
+          Copy-Item "target/$env:TARGET/release/bellwether-web.exe" "$env:STAGING/"
           Copy-Item -Recurse "frontend/dist" "$env:STAGING/frontend-dist"
           Copy-Item "LICENSE" "$env:STAGING/"
           Compress-Archive -Path $env:STAGING -DestinationPath "$env:STAGING.zip"

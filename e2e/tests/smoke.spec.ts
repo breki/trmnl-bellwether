@@ -5,7 +5,7 @@ test.describe("smoke tests", () => {
   test("homepage loads", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator("h1")).toContainText(
-      "rustbase",
+      "bellwether",
     );
   });
 

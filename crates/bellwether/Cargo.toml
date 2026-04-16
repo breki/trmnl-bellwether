@@ -1,22 +1,21 @@
 [package]
-name = "rustbase"
-version = "0.4.0"
+name = "bellwether"
+version = "0.1.0"
 edition = "2024"
-# TODO: update these fields for your project
-description = "A Rust project"
+description = "TRMNL e-ink dashboard server core library"
 license = "MIT"
-repository = "https://github.com/breki/rustbase"
+repository = "https://github.com/breki/trmnl-bellwether"
 readme = "../../README.md"
-default-run = "rustbase"
-keywords = ["cli"]
+default-run = "bellwether"
+keywords = ["trmnl", "e-ink", "home-assistant", "weather"]
 categories = ["command-line-utilities"]
 
 [lints]
 workspace = true
 
 [[bin]]
-name = "rustbase"
-path = "src/bin/rustbase/main.rs"
+name = "bellwether"
+path = "src/bin/bellwether/main.rs"
 
 [dependencies]
 # Library code uses thiserror for typed errors.

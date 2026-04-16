@@ -22,11 +22,11 @@ conventions.
 
 3. **Bump version** (for feat, fix, perf commits):
    - Read the current version from
-     `crates/rustbase/Cargo.toml`
+     `crates/bellwether/Cargo.toml`
    - Bump according to commit type:
      - `feat` -> **minor** bump (0.1.0 -> 0.2.0)
      - `fix`, `perf` -> **patch** bump (0.1.0 -> 0.1.1)
-   - Edit `crates/rustbase/Cargo.toml` to update the version
+   - Edit `crates/bellwether/Cargo.toml` to update the version
    - Run `cargo generate-lockfile` to update `Cargo.lock`
    - Include both files in staged files
    - Skip version bump for: docs, test, refactor, chore, style

@@ -19,14 +19,14 @@ invocation: >
 | Frontend | Svelte 5 + Vite (optional) |
 | Backend | Axum (optional) |
 | License | MIT |
-| Version | `crates/rustbase/Cargo.toml` (single source) |
+| Version | `crates/bellwether/Cargo.toml` (single source) |
 | Versioning | SemVer 2.0.0 |
 | Platforms | Linux, Windows, macOS (CI on all three) |
 
 ## Repository Layout
 
 ```
-rustbase/
+trmnl-bellwether/
   .cargo/
     config.toml         # cargo xtask alias
   .claude/
@@ -39,14 +39,14 @@ rustbase/
       ci.yml            # test + fmt + clippy on 3 OS
       release.yml       # 5-target binary releases
   crates/
-    rustbase/           # core library + CLI binary
+    bellwether/         # core library + CLI binary
       src/
         lib.rs          # library code
-        bin/rustbase/
+        bin/bellwether/
           main.rs       # CLI entry point
       tests/
         integration_test.rs
-    rustbase-web/       # Axum web server (optional)
+    bellwether-web/       # Axum web server (optional)
       src/
         main.rs         # server entry point
         api/
@@ -71,16 +71,16 @@ rustbase/
 
 ## Crate Responsibilities
 
-### `crates/rustbase` (core)
+### `crates/bellwether` (core)
 
 Library code in `lib.rs`, CLI binary in
-`src/bin/rustbase/main.rs`. All domain logic lives in
+`src/bin/bellwether/main.rs`. All domain logic lives in
 the library; the binary is thin dispatch.
 
 **Dependencies**: `anyhow` (CLI errors), `thiserror`
 (library errors), `clap` (argument parsing).
 
-### `crates/rustbase-web` (optional)
+### `crates/bellwether-web` (optional)
 
 Axum web server that depends on the core library.
 Serves the Svelte frontend as static files with SPA
@@ -130,7 +130,7 @@ to the Axum backend.
 
 1. Write tests first (TDD)
 2. Implement in library crate, not binary
-3. Add API endpoint in `crates/rustbase-web/src/api/`
+3. Add API endpoint in `crates/bellwether-web/src/api/`
    if web-facing
 4. Add frontend UI in `frontend/src/`
 5. Run `cargo xtask validate`

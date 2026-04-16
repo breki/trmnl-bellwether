@@ -11,22 +11,29 @@ they require manual approval every time.**
 
 ## Project Overview
 
-<!-- TODO: describe your project here -->
+`bellwether` is a Rust server that aggregates data from
+Home Assistant and the Windy Point Forecast API,
+renders server-side e-ink layouts (black/white or
+grayscale), and serves them to a TRMNL e-paper display
+via webhook. Intended to run on a Raspberry Pi (host
+name `malina`).
 
 - **Stack**: Rust/Axum backend, Svelte 5/Vite frontend
-- **Target platforms**: Windows, Linux, macOS
+  (control panel), static e-ink image renderer
+- **Target platforms**: Linux (primary, for RPi
+  deployment); Windows and macOS for development
 
 ### Workspace Crates
 
 | Crate | Purpose |
 |-------|---------|
-| `crates/rustbase` | Core library and CLI binary |
-| `crates/rustbase-web` | Axum web server (optional) |
+| `crates/bellwether` | Core library + CLI binary |
+| `crates/bellwether-web` | Axum web server, TRMNL webhook, render endpoint |
 | `xtask` | Build automation |
 
 The web crate is optional. To remove it: delete
-`crates/rustbase-web/`, `frontend/`, and remove
-`"crates/rustbase-web"` from `Cargo.toml` workspace
+`crates/bellwether-web/`, `frontend/`, and remove
+`"crates/bellwether-web"` from `Cargo.toml` workspace
 members.
 
 ## Build Commands
@@ -56,13 +63,13 @@ In dev mode, Vite proxies `/api` requests to the Axum
 backend on port 3000. Run backend and frontend in
 parallel:
 
-1. `cargo run -p rustbase-web` (backend on :3000)
+1. `cargo run -p bellwether-web` (backend on :3000)
 2. `cd frontend && npm run dev` (frontend on :5173)
 3. Open http://localhost:5173
 
 For production, build the frontend first, then serve
 with the backend:
-`cargo run -p rustbase-web -- --frontend frontend/dist`
+`cargo run -p bellwether-web -- --frontend frontend/dist`
 
 ### E2E Testing
 
@@ -146,8 +153,8 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 - **MINOR** -- new features, backwards-compatible
 - **PATCH** -- bug fixes, documentation, internal refactors
 
-The version lives in `crates/rustbase/Cargo.toml` and is
-the **single source of truth**.
+The version lives in `crates/bellwether/Cargo.toml` and
+is the **single source of truth**.
 
 ## Release Notes
 

@@ -7,6 +7,34 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Swapped dashboard font to Atkinson Hyperlegible (v0.9.0)
+
+    The m6x11plus pixel font was correct at its
+    native 18-px grid but scaled up 10× for the big
+    current-conditions temperature looked blocky on
+    the 800 × 480 canvas — the TRMNL OG e-ink can
+    render a smooth vector font through Floyd-
+    Steinberg dither far more crisply. Swapped in
+    Atkinson Hyperlegible Regular (Braille
+    Institute, SIL OFL): a sans-serif designed for
+    character-to-character distinctiveness. The
+    slashed zero and wide-aperture lowercase shapes
+    come through cleanly in the 1-bit output at every
+    size the dashboard uses, from the 36 px wind
+    label up to the 180 px current temperature.
+
+    Public API change (breaking):
+    `bellwether::render::M6X11_TTF` →
+    `ATKINSON_HYPERLEGIBLE_TTF`.
+    `Renderer::with_default_fonts()` signature
+    unchanged. Font sizes hoisted into named
+    constants (`CURRENT_TEMP_PX`,
+    `CONDITION_LABEL_PX`, `WIND_LABEL_PX`,
+    `DAY_LABEL_PX`, `DAY_HIGH_PX`) so the visual
+    hierarchy lives in one place and a typo shows
+    up as a compile error instead of at eyeball
+    time.
+
 - Real dashboard layout (v0.8.0)
 
     `bellwether::dashboard` replaces the placeholder

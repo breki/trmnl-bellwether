@@ -188,48 +188,52 @@ fn ignores_external_file_references_in_svg() {
 }
 
 #[test]
-fn bundled_m6x11_font_parses_as_truetype() {
+fn bundled_dashboard_font_parses_as_truetype() {
     // Guards against a corrupted checkout: the bundled
     // TTF bytes must start with the TrueType magic
-    // 0x00010000 (version 1.0) — anything else means the
-    // file was not committed verbatim.
+    // 0x00010000 (version 1.0) — anything else means
+    // the file was not committed verbatim.
     assert!(
-        M6X11_TTF.len() > 64,
+        ATKINSON_HYPERLEGIBLE_TTF.len() > 64,
         "font bytes suspiciously short: {}",
-        M6X11_TTF.len(),
+        ATKINSON_HYPERLEGIBLE_TTF.len(),
     );
     assert_eq!(
-        &M6X11_TTF[..4],
+        &ATKINSON_HYPERLEGIBLE_TTF[..4],
         &[0x00, 0x01, 0x00, 0x00],
         "bundled font missing TrueType magic",
     );
-    // ttf-parser confirms the structural integrity.
-    let face =
-        ttf_parser::Face::parse(M6X11_TTF, 0).expect("valid TrueType face");
-    assert!(!face.is_variable(), "m6x11plus is a static font");
+    let face = ttf_parser::Face::parse(ATKINSON_HYPERLEGIBLE_TTF, 0)
+        .expect("valid TrueType face");
+    assert!(!face.is_variable(), "bundled Atkinson is a static font");
 }
 
 #[test]
-fn bundled_m6x11_font_covers_dashboard_glyphs() {
+fn bundled_dashboard_font_covers_dashboard_glyphs() {
     // The dashboard needs every digit, every ASCII
     // letter (for day names, cardinal directions, and
-    // any condition label), the space, and a handful of
-    // typographic characters — notably U+00B0 °. If
-    // m6x11plus drops any of these, we need to pick a
-    // different font or substitute a drawn glyph; better
-    // to know at test time than at render time. The
-    // ranges cover the full set so future font
-    // subsetting can't sneak a gap past a spot-check.
-    let face =
-        ttf_parser::Face::parse(M6X11_TTF, 0).expect("valid TrueType face");
+    // condition labels), the space, and a handful of
+    // typographic characters — notably U+00B0 °. If a
+    // future font swap drops any of these, we need to
+    // pick a different font or substitute a drawn
+    // glyph; better to know at test time than at render
+    // time. The ranges cover the full set so future
+    // font subsetting can't sneak a gap past a
+    // spot-check.
+    let face = ttf_parser::Face::parse(ATKINSON_HYPERLEGIBLE_TTF, 0)
+        .expect("valid TrueType face");
+    // U+2014 EM DASH is the PLACEHOLDER glyph the
+    // dashboard emits for every missing-data field
+    // (null `high_c`, missing current conditions,
+    // etc.). Without it, a legitimate forecast with a
+    // partially populated day would render empty.
     let ranges = [
         '0'..='9',
         'A'..='Z',
         'a'..='z',
-        // Single-character ranges for the non-alphanumeric
-        // characters the dashboard will render.
         ' '..=' ',
         '°'..='°',
+        '—'..='—',
     ];
     for range in ranges {
         for c in range {
@@ -243,7 +247,7 @@ fn bundled_m6x11_font_covers_dashboard_glyphs() {
 }
 
 #[test]
-fn with_default_fonts_registers_m6x11_face() {
+fn with_default_fonts_registers_one_face() {
     let renderer = Renderer::with_default_fonts();
     // The Debug impl is the public contract for the
     // font count; asserting against it avoids coupling
@@ -254,17 +258,17 @@ fn with_default_fonts_registers_m6x11_face() {
 
 #[test]
 fn with_default_fonts_renders_degree_sign_glyph() {
-    // End-to-end text rendering: build a renderer with the
-    // bundled font, rasterize an SVG that prints "0°C" in
-    // large type, and assert the output has meaningful
-    // black coverage — not a blank canvas. Without the
-    // font, usvg silently drops glyphs and the result is
-    // all-white; this test would then fail and tell us
-    // the font pipeline is broken.
+    // End-to-end text rendering: build a renderer with
+    // the bundled font, rasterize an SVG that prints
+    // "0°C" at display size, and assert the output has
+    // meaningful black coverage — not a blank canvas.
+    // Without the font, usvg silently drops glyphs and
+    // the result is all-white; this test would then
+    // fail and tell us the font pipeline is broken.
     let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
              width="160" height="64" viewBox="0 0 160 64">
           <rect width="160" height="64" fill="white"/>
-          <text x="80" y="48" font-family="m6x11plus"
+          <text x="80" y="48" font-family="Atkinson Hyperlegible"
                 font-size="36" text-anchor="middle"
                 fill="black">0°C</text>
         </svg>"#;

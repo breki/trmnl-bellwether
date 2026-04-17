@@ -10,6 +10,32 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-04-17
+
+### Changed
+
+- **Breaking:** bundled dashboard font swapped from
+  `m6x11plus` (pixel font) to `Atkinson Hyperlegible`
+  Regular (vector sans-serif, SIL OFL). The new font
+  is designed by the Braille Institute for maximum
+  character-to-character legibility and dithers
+  cleanly to 1-bit e-ink at display sizes — much
+  crisper than a pixel font scaled 10× for the big
+  current-conditions temperature.
+- **Breaking:** `bellwether::render::M6X11_TTF` renamed
+  to `bellwether::render::ATKINSON_HYPERLEGIBLE_TTF`.
+  The `&[u8]` typing and `Renderer::with_default_fonts()`
+  constructor are unchanged, so downstream callers that
+  only use `with_default_fonts()` need no changes —
+  only consumers of the const need to update the name.
+- Dashboard SVG builder no longer constrains font
+  sizes to integer multiples of 18 (that was specific
+  to m6x11plus's pixel grid). Size literals are now
+  named constants (`CURRENT_TEMP_PX`,
+  `CONDITION_LABEL_PX`, `WIND_LABEL_PX`,
+  `DAY_LABEL_PX`, `DAY_HIGH_PX`) at the top of
+  `dashboard::svg`.
+
 ## [0.8.0] - 2026-04-17
 
 ### Added

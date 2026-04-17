@@ -24,17 +24,19 @@
 //! Text baselines are specified in `y` coordinates;
 //! the SVG `text-anchor` attribute handles horizontal
 //! alignment so the builder never measures rendered
-//! glyph widths itself (the m6x11plus font is
+//! glyph widths itself (the bundled font is
 //! proportional — pixel-perfect width math in Rust
 //! would be wrong by construction).
 //!
 //! ## Font sizing
 //!
-//! m6x11plus is a pixel font tuned for integer
-//! multiples of 18. Every `font-size` in this file is
-//! `18 * N` for some `N`; sub-multiple sizes would
-//! antialias and dither, defeating the font's sharp
-//! pixel aesthetic.
+//! The bundled font (Atkinson Hyperlegible) is a vector
+//! font with no pixel-grid constraints — any integer
+//! `font-size` renders crisply through the
+//! Floyd–Steinberg dither. Sizes here are picked
+//! by eye against the 800 × 480 canvas and the
+//! layout's visual hierarchy; no hidden
+//! grid-alignment invariant.
 //!
 //! ## Weekday formatting
 //!
@@ -63,8 +65,23 @@ const CANVAS_H: u32 = 480;
 const DIVIDER_Y: u32 = 240;
 /// Placeholder glyph used whenever a field is missing —
 /// a single em dash. Unicode `—` (U+2014) is covered
-/// by m6x11plus's extended Latin set.
+/// by the bundled font.
 const PLACEHOLDER: &str = "—";
+
+/// Font size for the big current-conditions temperature
+/// on the top-left.
+const CURRENT_TEMP_PX: u32 = 180;
+/// Font size for the condition label ("Partly cloudy",
+/// "Sunny", …) on the top-right.
+const CONDITION_LABEL_PX: u32 = 54;
+/// Font size for the wind label ("Wind 18 km/h SW") on
+/// the top-right, below the condition label.
+const WIND_LABEL_PX: u32 = 36;
+/// Font size for each day tile's weekday abbreviation
+/// ("Sat", "Sun", "Mon") on the bottom row.
+const DAY_LABEL_PX: u32 = 36;
+/// Font size for each day tile's high temperature.
+const DAY_HIGH_PX: u32 = 72;
 
 /// Build the dashboard SVG.
 #[must_use]
@@ -82,7 +99,7 @@ fn wrap(body: &str) -> String {
             "<svg xmlns=\"http://www.w3.org/2000/svg\" ",
             "width=\"{w}\" height=\"{h}\" ",
             "viewBox=\"0 0 {w} {h}\" ",
-            "font-family=\"m6x11plus\">",
+            "font-family=\"Atkinson Hyperlegible\">",
             "<rect width=\"{w}\" height=\"{h}\" fill=\"white\"/>",
             "{body}",
             "</svg>",
@@ -126,10 +143,11 @@ fn round_i32(v: f64) -> i32 {
 fn current_temperature(temp_c: f64) -> String {
     format!(
         concat!(
-            "<text x=\"40\" y=\"200\" font-size=\"180\" ",
+            "<text x=\"40\" y=\"200\" font-size=\"{size}\" ",
             "text-anchor=\"start\" fill=\"black\">",
             "{temp}°</text>",
         ),
+        size = CURRENT_TEMP_PX,
         temp = round_i32(temp_c),
     )
 }
@@ -137,10 +155,11 @@ fn current_temperature(temp_c: f64) -> String {
 fn current_temperature_placeholder() -> String {
     format!(
         concat!(
-            "<text x=\"40\" y=\"200\" font-size=\"180\" ",
+            "<text x=\"40\" y=\"200\" font-size=\"{size}\" ",
             "text-anchor=\"start\" fill=\"black\">",
             "{placeholder}</text>",
         ),
+        size = CURRENT_TEMP_PX,
         placeholder = PLACEHOLDER,
     )
 }
@@ -148,10 +167,11 @@ fn current_temperature_placeholder() -> String {
 fn current_condition_label(condition: Condition) -> String {
     format!(
         concat!(
-            "<text x=\"420\" y=\"130\" font-size=\"54\" ",
+            "<text x=\"420\" y=\"130\" font-size=\"{size}\" ",
             "text-anchor=\"start\" fill=\"black\">",
             "{label}</text>",
         ),
+        size = CONDITION_LABEL_PX,
         label = condition.label(),
     )
 }
@@ -159,10 +179,11 @@ fn current_condition_label(condition: Condition) -> String {
 fn current_wind_label(kmh: f64, from: Compass8) -> String {
     format!(
         concat!(
-            "<text x=\"420\" y=\"200\" font-size=\"36\" ",
+            "<text x=\"420\" y=\"200\" font-size=\"{size}\" ",
             "text-anchor=\"start\" fill=\"black\">",
             "Wind {kmh} km/h {dir}</text>",
         ),
+        size = WIND_LABEL_PX,
         kmh = round_i32(kmh),
         dir = from.abbrev(),
     )
@@ -210,11 +231,12 @@ fn weekday_label(w: Weekday) -> &'static str {
 fn day_label(centre_x: u32, weekday: Weekday) -> String {
     format!(
         concat!(
-            "<text x=\"{x}\" y=\"300\" font-size=\"36\" ",
+            "<text x=\"{x}\" y=\"300\" font-size=\"{size}\" ",
             "text-anchor=\"middle\" fill=\"black\">",
             "{label}</text>",
         ),
         x = centre_x,
+        size = DAY_LABEL_PX,
         label = weekday_label(weekday),
     )
 }
@@ -238,20 +260,22 @@ fn day_high(centre_x: u32, high_c: Option<i32>) -> String {
     match high_c {
         Some(n) => format!(
             concat!(
-                "<text x=\"{x}\" y=\"460\" font-size=\"72\" ",
+                "<text x=\"{x}\" y=\"460\" font-size=\"{size}\" ",
                 "text-anchor=\"middle\" fill=\"black\">",
                 "{high}°</text>",
             ),
             x = centre_x,
+            size = DAY_HIGH_PX,
             high = n,
         ),
         None => format!(
             concat!(
-                "<text x=\"{x}\" y=\"460\" font-size=\"72\" ",
+                "<text x=\"{x}\" y=\"460\" font-size=\"{size}\" ",
                 "text-anchor=\"middle\" fill=\"black\">",
                 "{placeholder}</text>",
             ),
             x = centre_x,
+            size = DAY_HIGH_PX,
             placeholder = PLACEHOLDER,
         ),
     }
@@ -260,11 +284,12 @@ fn day_high(centre_x: u32, high_c: Option<i32>) -> String {
 fn day_placeholder(centre_x: u32) -> String {
     format!(
         concat!(
-            "<text x=\"{x}\" y=\"400\" font-size=\"72\" ",
+            "<text x=\"{x}\" y=\"400\" font-size=\"{size}\" ",
             "text-anchor=\"middle\" fill=\"black\">",
             "{placeholder}</text>",
         ),
         x = centre_x,
+        size = DAY_HIGH_PX,
         placeholder = PLACEHOLDER,
     )
 }
@@ -392,29 +417,39 @@ mod tests {
     fn font_family_set_at_svg_root() {
         let svg = build_svg(&sample_model());
         assert_eq!(
-            svg.matches("font-family=\"m6x11plus\"").count(),
+            svg.matches("font-family=\"Atkinson Hyperlegible\"").count(),
             1,
             "expected exactly one font-family attr: {svg}",
         );
     }
 
     #[test]
-    fn font_sizes_are_integer_multiples_of_18() {
+    fn font_family_in_svg_matches_ttf_name_table_family() {
+        // The SVG's `font-family` attribute must match
+        // the family name the bundled TTF's `name`
+        // table advertises, or fontdb registers the
+        // face under one string while the SVG references
+        // another — and usvg silently drops every glyph.
+        // A swap to a differently-named font (or a
+        // typo like "Atkinson-Hyperlegible") gets caught
+        // here at test time.
+        let face = ttf_parser::Face::parse(
+            crate::render::ATKINSON_HYPERLEGIBLE_TTF,
+            0,
+        )
+        .expect("valid TrueType face");
+        let family = face
+            .names()
+            .into_iter()
+            .filter(|n| n.name_id == ttf_parser::name_id::FAMILY)
+            .find_map(|n| n.to_string())
+            .expect("font must expose a family name");
         let svg = build_svg(&sample_model());
-        let mut sizes: Vec<u32> = Vec::new();
-        for (_, rest) in svg.match_indices("font-size=\"") {
-            let num: String = rest
-                .chars()
-                .skip("font-size=\"".len())
-                .take_while(char::is_ascii_digit)
-                .collect();
-            let n: u32 = num.parse().unwrap_or(0);
-            sizes.push(n);
-        }
-        assert!(!sizes.is_empty(), "no font-size attrs: {svg}");
-        for n in sizes {
-            assert_eq!(n % 18, 0, "font-size {n} is not a multiple of 18");
-        }
+        let expected = format!("font-family=\"{family}\"");
+        assert!(
+            svg.contains(&expected),
+            "SVG font-family does not match TTF family {family:?}: {svg}",
+        );
     }
 
     #[test]

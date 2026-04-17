@@ -1,24 +1,36 @@
 # Bundled fonts
 
-## m6x11plus.ttf
+## AtkinsonHyperlegible-Regular.ttf
 
-A 6×11 proportional pixel font with extended Latin
-character coverage (Dutch, French, German, Italian,
-Norwegian, Polish, Portuguese, Spanish, Swedish).
+A proportional sans-serif designed by the Braille
+Institute of America for maximum legibility at any
+resolution, with distinctive letterforms that reduce
+character confusion (e.g. the bowl of the `a` vs the
+opening of the `e`; the angles on `I`, `l`, `1`).
+Particularly well-suited to 1-bit e-ink rendering
+after Floyd-Steinberg dithering — the heavier strokes
+and wider apertures survive the dither pattern better
+than a thin geometric sans would.
 
-- **Author**: Daniel Linssen (managore)
-- **Source**: <https://managore.itch.io/m6x11>
-- **Licence**: free to use with attribution (per the
-  itch.io page "free with attribution!")
+- **Author**: Braille Institute of America / Applied
+  Design Works
+- **Source**: <https://brailleinstitute.org/freefont>
+  (GitHub mirror:
+  <https://github.com/googlefonts/atkinson-hyperlegible>)
+- **Licence**: SIL Open Font License 1.1. Free for
+  any use including commercial, with source font
+  redistribution permitted but font sales prohibited.
+  Full licence text at the Braille Institute page.
 
 We bundle this font into the `bellwether` crate via
-`include_bytes!` so the dashboard renders consistent
-text on every deployment target regardless of the
-host's installed fonts. Recommended point sizes
-(per the author's notes): 18, 36, 54 — i.e. integer
-multiples of 18.
+`include_bytes!` so the dashboard renders consistently
+across all deployment targets regardless of the host's
+installed fonts. Unlike a pixel font, Atkinson is
+authored with vector outlines, so any font-size
+renders crisply — no grid-alignment constraints on
+the layout.
 
-Attribution appears in the crate's
-`Cargo.toml` authors/credits and should be included
-in any public-facing documentation that mentions the
-dashboard's typography.
+Attribution appears in the crate's `Cargo.toml`
+metadata and should be included in any public-facing
+documentation that mentions the dashboard's
+typography.

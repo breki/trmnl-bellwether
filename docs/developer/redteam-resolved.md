@@ -5,6 +5,52 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (feat — swap dashboard font to Atkinson Hyperlegible)
+
+### RT-074 — Changelog missed 0.9.0 breaking rename
+**Category:** Project configuration
+**Description:** The 0.9.0 bump on `Cargo.toml` was
+driven entirely by the `M6X11_TTF` →
+`ATKINSON_HYPERLEGIBLE_TTF` public rename, and that
+rename was invisible in `CHANGELOG.md` — the
+`[Unreleased]` section was left empty. A downstream
+consumer reading release notes between 0.8.0 and
+0.9.0 would have no signal that a public symbol was
+renamed.
+**Resolution:** Added a `[0.9.0] - 2026-04-17`
+section with **Changed** entries covering the
+bundled-font swap, the const rename (called out as
+breaking), and the drop of the "multiples of 18"
+font-size constraint. Historical 0.7.0 /0.8.0
+entries left intact as history.
+
+### RT-075 — Stale `m6x11plus` reference in Cargo.toml
+**Category:** Project configuration
+**Description:** The `ttf-parser` dev-dep comment in
+`crates/bellwether/Cargo.toml:53` still described
+the font as `m6x11plus` after the swap. The only
+remaining live reference to the retired font in
+non-historical files.
+**Resolution:** Rewrote the comment to name the
+Atkinson Hyperlegible font and list the two
+non-ASCII glyphs that matter (U+00B0 degree sign,
+U+2014 em dash).
+
+### RT-076 — Em-dash placeholder glyph not in coverage test
+**Category:** Correctness
+**Description:** `dashboard/svg.rs` emits `—`
+(U+2014) as the `PLACEHOLDER` string for every
+missing-data field (null `high_c`, absent current
+conditions, short-day tiles). The
+`bundled_dashboard_font_covers_dashboard_glyphs`
+test checked digits, ASCII letters, space, and
+U+00B0, but not U+2014 — so a future font swap to
+something without em-dash coverage would silently
+render blank fields rather than the placeholder.
+**Resolution:** Added `'—'..='—'` to the `ranges`
+array, with a comment explaining why the em-dash
+is required.
+
 ## 2026-04-17 (chore — `cargo xtask test --ignored`)
 
 ### RT-071 — `build_args` partially built args before validating filter

@@ -6,6 +6,47 @@ findings.
 
 ---
 
+## 2026-04-17 (feat — swap dashboard font to Atkinson Hyperlegible)
+
+### AQ-084 — New font-family test duplicated existing coverage
+**Category:** Type safety / test quality
+**Description:**
+`font_family_matches_bundled_font_registration_name`
+asserted that the SVG contained a hard-coded
+`font-family="Atkinson Hyperlegible"` literal — the
+exact same check
+`font_family_set_at_svg_root` was already making.
+The docstring promised to catch a mismatch between
+the SVG `font-family` and the font's actual fontdb
+registration name, but neither test read the TTF's
+`name` table: a typo like `Atkinson-Hyperlegible`
+(or a font swap that changed the family name)
+would have silently dropped every glyph through
+usvg's fallback behaviour.
+**Resolution:** Upgraded the test to a true
+registration-name check — reads the `FAMILY` record
+out of `ATKINSON_HYPERLEGIBLE_TTF`'s `name` table
+via `ttf-parser`, formats the expected
+`font-family="..."` string, then asserts the SVG
+contains it. Renamed to
+`font_family_in_svg_matches_ttf_name_table_family`.
+
+### AQ-085 — Font sizes reverted to free-floating magic numbers
+**Category:** Code quality
+**Description:** Removing the m6x11plus-era "font
+sizes must be multiples of 18" test eliminated the
+only structural guard on the size literals (180,
+54, 36, 36, 72). A typo turning `72` into `27`
+would now pass CI with no visible failure.
+**Resolution:** Hoisted the five sizes into named
+constants at the top of `dashboard/svg.rs`:
+`CURRENT_TEMP_PX`, `CONDITION_LABEL_PX`,
+`WIND_LABEL_PX`, `DAY_LABEL_PX`, `DAY_HIGH_PX`.
+Each `format!`-ed `font-size` attribute now
+references the constant, so the visual hierarchy
+lives in one place and a typo shows up as a Rust
+compile error rather than at eyeball time.
+
 ## 2026-04-17 (chore — `cargo xtask test --ignored`)
 
 ### AQ-083 — `test_cmd::test` grew to three positional args

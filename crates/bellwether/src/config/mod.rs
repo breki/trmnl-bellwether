@@ -106,7 +106,43 @@ pub enum ConfigError {
          be in 1..=86400"
     )]
     InvalidRefreshRate(u32),
+    /// `[windy] parameters` omits a parameter the v1
+    /// dashboard requires. We reject at load time so an
+    /// operator upgrading from a pre-0.8 config whose
+    /// parameter list predates the full dashboard
+    /// (which now consumes clouds and precip for
+    /// condition classification, plus temp and wind for
+    /// the labels) sees the migration path immediately
+    /// — rather than silently rendering "Cloudy" on
+    /// every tile because the classifier has nothing to
+    /// work with.
+    ///
+    /// An empty `parameters` list is still accepted:
+    /// that's how webhook-only deployments opt out of
+    /// the Windy fetch entirely.
+    #[error(
+        "[windy] parameters is missing the dashboard's \
+         required inputs {missing:?}; add them to the \
+         list (v1 dashboard consumes temp, wind, \
+         clouds, precip)"
+    )]
+    MissingRequiredWindyParameters {
+        /// The subset of `REQUIRED_WINDY_PARAMETERS`
+        /// the loaded config doesn't include.
+        missing: Vec<WindyParameter>,
+    },
 }
+
+/// Windy parameters the v1 dashboard needs. If
+/// `[windy] parameters` is non-empty it must contain
+/// all of these; if it is empty the check is skipped
+/// (webhook-only deployments don't call Windy).
+pub const REQUIRED_WINDY_PARAMETERS: &[WindyParameter] = &[
+    WindyParameter::Temp,
+    WindyParameter::Wind,
+    WindyParameter::Clouds,
+    WindyParameter::Precip,
+];
 
 /// Top-level configuration.
 #[derive(Debug, Deserialize, PartialEq)]
@@ -192,6 +228,7 @@ impl Config {
                 byos.default_refresh_rate_s,
             ));
         }
+        validate_windy_parameters(&self.windy.parameters)?;
         Ok(())
     }
 }
@@ -214,6 +251,23 @@ fn config_base_dir(path: &Path) -> PathBuf {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
     }
+}
+
+fn validate_windy_parameters(
+    parameters: &[WindyParameter],
+) -> Result<(), ConfigError> {
+    if parameters.is_empty() {
+        return Ok(());
+    }
+    let missing: Vec<WindyParameter> = REQUIRED_WINDY_PARAMETERS
+        .iter()
+        .filter(|p| !parameters.contains(p))
+        .copied()
+        .collect();
+    if !missing.is_empty() {
+        return Err(ConfigError::MissingRequiredWindyParameters { missing });
+    }
+    Ok(())
 }
 
 pub(super) fn resolve_relative(base: &Path, p: &mut PathBuf) {
@@ -276,6 +330,7 @@ mod tests {
             vec![
                 WindyParameter::Temp,
                 WindyParameter::Wind,
+                WindyParameter::Clouds,
                 WindyParameter::Precip,
             ],
         );
@@ -527,6 +582,54 @@ mod tests {
         "#;
         let err = Config::from_toml_str(text).unwrap_err();
         assert!(matches!(err, ConfigError::InvalidRefreshRate(86401)));
+    }
+
+    #[test]
+    fn rejects_byos_config_missing_required_windy_parameters() {
+        // An operator upgrading from 0.7 whose
+        // `parameters` list predates the v1 dashboard
+        // should see a clear load-time error rather
+        // than silently getting "Cloudy" on every
+        // sample.
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+            parameters = ["temp", "wind", "precip"]
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        let ConfigError::MissingRequiredWindyParameters { missing } = err
+        else {
+            panic!("expected MissingRequiredWindyParameters, got {err:?}");
+        };
+        assert_eq!(missing, vec![WindyParameter::Clouds]);
+    }
+
+    #[test]
+    fn accepts_empty_parameters_list_for_webhook_only_deployments() {
+        // An empty parameters list is valid: webhook
+        // mode never calls Windy, so nothing to
+        // validate. The existing `loads_webhook_config`
+        // test exercises this through the on-disk
+        // fixture; pin it here too so the validation
+        // rule change doesn't accidentally tighten
+        // it.
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+        "#;
+        Config::from_toml_str(text).expect("empty parameters is valid");
     }
 
     #[test]

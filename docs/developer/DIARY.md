@@ -7,6 +7,55 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Real dashboard layout (v0.8.0)
+
+    `bellwether::dashboard` replaces the placeholder
+    temperature bar with a current-conditions panel
+    (big temp, condition word, wind label) and three
+    day tiles (weekday, icon, high) along the bottom.
+    Module structure:
+
+    - `classify` — `Condition` (Sunny/PartlyCloudy/
+      Cloudy/Rain) and `Compass8` enums; pure
+      `classify_weather(cloud_pct, precip_mmh)` and
+      `wind_to_compass(u, v)` functions with
+      meteorological "wind from" convention.
+    - `model` — `DashboardModel`, `CurrentConditions`,
+      `DaySummary` structs; `build_model(forecast, tz,
+      now)` that handles Kelvin→Celsius, wind u/v →
+      km/h + compass, local-date bucketing, partial-day
+      threshold (fewer than 6 samples drops the tile),
+      and null-temperature handling (`high_c:
+      Option<i32>` so the SVG can show an em-dash
+      rather than a misleading "0°").
+    - `icons` — four hand-drawn 48 × 48 SVG icon
+      fragments.
+    - `svg` — `build_svg(model)` that emits an 800 × 480
+      SVG at integer-multiple-of-18 font sizes (the
+      size family m6x11plus is designed for).
+
+    Wiring: `publish::tick_once` passes `Utc::now()`
+    through so "current" is the sample closest to
+    wall-clock, not `ts[0]` (which can be stale by
+    hours depending on Windy's model-run cadence).
+    `bellwether-web/main.rs` switched to
+    `Renderer::with_default_fonts()` so text
+    actually renders.
+
+    Config validation: `parameters` (when non-empty)
+    must include temp, wind, clouds, precip — the
+    four the v1 dashboard consumes. A pre-0.8 config
+    missing `clouds` now fails at load rather than
+    silently rendering "Cloudy" forever.
+
+    Tests: 43 new unit tests across classify / model /
+    icons / svg, plus an end-to-end test that renders
+    the full pipeline at TRMNL OG resolution and
+    asserts a 48,062-byte BMP with meaningful black
+    coverage. An `#[ignore]`'d
+    `generate_dashboard_sample_bmp` writes
+    `target/dashboard-sample.bmp` for manual eyeball.
+
 - Bundled m6x11plus pixel font (v0.7.0)
 
     Added `bellwether::render::M6X11_TTF: &[u8]` as a

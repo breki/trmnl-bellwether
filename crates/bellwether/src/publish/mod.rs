@@ -4,14 +4,12 @@
 //! into a single repeating task:
 //!
 //! 1. Fetch a Windy Point Forecast.
-//! 2. Render a dashboard SVG to a 1-bit BMP.
+//! 2. Build a [`crate::dashboard::DashboardModel`] from
+//!    the forecast, then render it to a 1-bit BMP via
+//!    the dashboard SVG builder and
+//!    [`crate::render::Renderer`].
 //! 3. Publish the BMP to an [`ImageSink`] (the web
 //!    crate's `TrmnlState` implements this).
-//!
-//! The dashboard SVG is a temporary placeholder — a bar
-//! whose width tracks the current Celsius temperature.
-//! A real layout is tracked in `TODO.md` for a later
-//! PR.
 //!
 //! Errors on any single tick are logged and swallowed:
 //! a one-off Windy outage or transient Pi DNS hiccup
@@ -33,10 +31,11 @@ use std::error::Error as StdError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use crate::clients::windy::{
-    Client as WindyClient, FetchRequest, Forecast, WindyError,
-};
-use crate::config::{RenderConfig, WindyParameter};
+use chrono::Utc;
+
+use crate::clients::windy::{Client as WindyClient, FetchRequest, WindyError};
+use crate::config::RenderConfig;
+use crate::dashboard;
 use crate::render::{RenderError, Renderer};
 
 /// Opaque sink error type.
@@ -154,7 +153,12 @@ impl<S: ImageSink> PublishLoop<S> {
     /// publish outside the loop's schedule.
     pub async fn tick_once(&self) -> Result<String, PublishError> {
         let forecast = self.windy.fetch(&self.fetch_request).await?;
-        let svg = build_dashboard_svg(&forecast, &self.render_cfg);
+        let model = dashboard::build_model(
+            &forecast,
+            self.render_cfg.timezone,
+            Utc::now(),
+        );
+        let svg = dashboard::build_svg(&model);
         let bmp = self.renderer.render_to_bmp(&svg, &self.render_cfg)?;
         let filename = self.next_filename();
         self.sink
@@ -171,92 +175,6 @@ impl<S: ImageSink> PublishLoop<S> {
         let n = self.counter.fetch_add(1, Ordering::Relaxed);
         format!("dash-{n:08}.bmp")
     }
-}
-
-/// Build the dashboard SVG. Temporary placeholder until
-/// a real layout lands — a bar whose width tracks the
-/// current Celsius temperature on a 0–40 °C scale.
-/// Missing temperature data is rendered as an X overlay
-/// so the operator can distinguish it from a real
-/// 0 °C reading.
-fn build_dashboard_svg(forecast: &Forecast, cfg: &RenderConfig) -> String {
-    let (width, height) = (cfg.width, cfg.height);
-    let temp = forecast
-        .values(WindyParameter::Temp)
-        .and_then(|v| v.first().copied().flatten());
-
-    let margin = u32::min(width / 10, 50);
-    let avail = width.saturating_sub(margin * 2);
-    let bar_h = u32::min(40, height / 2);
-    let bar_y = (height / 2).saturating_sub(bar_h / 2);
-
-    let mut body = format!(
-        concat!(
-            "<rect x=\"{margin}\" y=\"{bar_y}\" ",
-            "width=\"{avail}\" height=\"{bar_h}\" ",
-            "fill=\"none\" stroke=\"black\" stroke-width=\"2\"/>",
-        ),
-        margin = margin,
-        bar_y = bar_y,
-        avail = avail,
-        bar_h = bar_h,
-    );
-
-    if let Some(kelvin) = temp {
-        let celsius = kelvin - 273.15;
-        let fraction = (celsius / 40.0).clamp(0.0, 1.0);
-        #[allow(
-            clippy::cast_precision_loss,
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
-        )]
-        let bar_w = (fraction * f64::from(avail)) as u32;
-        body.push_str(&format!(
-            concat!(
-                "<rect x=\"{margin}\" y=\"{bar_y}\" ",
-                "width=\"{bar_w}\" height=\"{bar_h}\" fill=\"black\"/>",
-            ),
-            margin = margin,
-            bar_y = bar_y,
-            bar_w = bar_w,
-            bar_h = bar_h,
-        ));
-    } else {
-        tracing::warn!(
-            "no temperature in forecast — rendering \"no data\" overlay",
-        );
-        let x1 = margin;
-        let x2 = margin + avail;
-        let y1 = bar_y;
-        let y2 = bar_y + bar_h;
-        body.push_str(&format!(
-            concat!(
-                "<line x1=\"{x1}\" y1=\"{y1}\" ",
-                "x2=\"{x2}\" y2=\"{y2}\" ",
-                "stroke=\"black\" stroke-width=\"3\"/>",
-                "<line x1=\"{x1}\" y1=\"{y2}\" ",
-                "x2=\"{x2}\" y2=\"{y1}\" ",
-                "stroke=\"black\" stroke-width=\"3\"/>",
-            ),
-            x1 = x1,
-            x2 = x2,
-            y1 = y1,
-            y2 = y2,
-        ));
-    }
-
-    format!(
-        concat!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" ",
-            "width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\">",
-            "<rect width=\"{w}\" height=\"{h}\" fill=\"white\"/>",
-            "{body}",
-            "</svg>",
-        ),
-        w = width,
-        h = height,
-        body = body,
-    )
 }
 
 /// Spawn a background task and log clearly if it ever

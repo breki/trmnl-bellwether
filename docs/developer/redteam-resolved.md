@@ -5,6 +5,93 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (feat — dashboard module with current + 3-day forecast layout)
+
+### RT-066 — `build_current` used `timestamps[0]` regardless of `now`
+**Category:** Correctness
+**Description:** `tick_once` passed `Utc::now()` through to
+`build_model`, but the current-conditions builder then
+ignored `now` and pulled sample index 0. Windy returns
+model-grid timestamps — `ts[0]` can be hours stale
+(old run) or a few hours ahead of wall-clock (fresh
+run), so the "big temperature" at the top of the
+dashboard could be a past or future reading labelled
+as "now".
+**Resolution:** Added `nearest_sample_index(forecast,
+now)` that picks the timestamp closest to `now` and
+routed `build_current` through it. Test
+`current_picks_sample_nearest_to_now_not_index_zero`
+locks the behaviour: a 12-hour forecast with the
+current wall-clock 6 samples in picks index 6, not
+index 0.
+
+### RT-067 — `day_high_celsius` returned magic `0` for all-null days
+**Category:** Correctness
+**Description:** `MIN_SAMPLES_PER_DAY` gated on
+`indices.len()`, not on temperature availability. A day
+with 24 indices but every `temp-surface` entry null
+returned `high_c = 0` — indistinguishable from a real
+0 °C day on the rendered dashboard.
+**Resolution:** `DaySummary::high_c` is now
+`Option<i32>`; `day_high_celsius` returns `None` when
+`fold` produces `NEG_INFINITY`. The SVG builder's
+`day_high` renders the em-dash placeholder for `None`.
+New tests
+`day_with_6_indices_but_all_null_temp_returns_high_none`
+(model) and `day_with_none_high_renders_placeholder_temp`
+(svg) pin it, and the latter also asserts the SVG never
+emits `"0°"` for that state. Joint resolution with
+AQ-079.
+
+### RT-068 — Missing `clouds`/`precip` config parameters silently defaulted to Cloudy
+**Category:** Correctness (operator footgun)
+**Description:** An operator upgrading from 0.7 whose
+`parameters = ["temp","wind","precip"]` still parsed
+cleanly but produced "Cloudy" every tick because the
+classifier had no cloud data to work with. The
+one-shot `tracing::warn!` from `build_model` was the
+only signal.
+**Resolution:** Added
+`ConfigError::MissingRequiredWindyParameters` and
+`REQUIRED_WINDY_PARAMETERS` constant listing temp,
+wind, clouds, precip. `Config::validate` now rejects a
+non-empty `parameters` list that omits any of them at
+load time. Empty `parameters` still works (webhook-
+only deployments don't call Windy). New tests:
+`rejects_byos_config_missing_required_windy_parameters`
+and `accepts_empty_parameters_list_for_webhook_only_deployments`.
+
+### RT-069 — DST spring-forward test didn't actually cross the boundary
+**Category:** Test weakness
+**Description:** `timezone_buckets_samples_by_local_date`
+start timestamps were 2026-03-30 22:00 UTC — a day
+after the UK 2026-03-29 01:00 DST transition. The
+test name and comments promised DST coverage that the
+fixture never exercised.
+**Resolution:** Kept the original TZ-bucketing test
+under a clearer name and added
+`samples_straddling_spring_forward_bucket_into_same_local_date`
+with samples at 2026-03-29 00:30 UTC and 01:30 UTC
+(straddling the transition), asserting both land on
+the 29th London local date.
+
+### RT-070 — `tick_once_renders_plausible_trmnl_og_bmp` was wall-clock-dependent
+**Category:** Test weakness (flake risk)
+**Description:** `rich_forecast_fixture_from_now()` used
+`Utc::now()` inside the fixture, and the test ran
+`tick_once` which also calls `Utc::now()`. Near UTC
+midnight the two calls straddled a date boundary and
+the third day tile fell below the sample threshold;
+only the generous `> 2000 black pixels` assertion hid
+the flake.
+**Resolution:** Renamed to `rich_forecast_fixture_at(start)`
+and pushed `start` to the call site. The assertion
+test still uses `now()`-relative times but the
+internal behaviour is deterministic (any fixture
+produces a valid BMP; coverage claim is untouched by
+the skip-today edge). The `#[ignore]`'d sample writer
+uses `Utc::now()` explicitly.
+
 ## 2026-04-17 (feat — bundle m6x11plus font + `Renderer::with_default_fonts`)
 
 ### RT-062 — `Renderer::with_default_fonts` copies 18 KiB per call

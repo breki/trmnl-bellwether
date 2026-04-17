@@ -190,7 +190,7 @@ fn seed_placeholder(
     state: &TrmnlState,
     render_cfg: &RenderConfig,
 ) -> Result<()> {
-    let bmp = Renderer::new()
+    let bmp = Renderer::with_default_fonts()
         .placeholder_bmp(render_cfg)
         .context("rendering placeholder image")?;
     state
@@ -221,7 +221,7 @@ fn spawn_publish_loop(
     let publish_loop = PublishLoop::new(
         windy,
         fetch_request,
-        Renderer::new(),
+        Renderer::with_default_fonts(),
         render_cfg,
         trmnl,
         refresh_interval.as_duration(),

@@ -6,6 +6,67 @@ findings.
 
 ---
 
+## 2026-04-17 (feat — dashboard module with current + 3-day forecast layout)
+
+### AQ-078 — `build_svg` took `&RenderConfig` for "forward compatibility" but read none of it
+**Category:** API design / YAGNI
+**Description:** `build_svg(model, _cfg: &RenderConfig) -> String`
+had an `#[allow(clippy::needless_pass_by_value)]`
+masking that `_cfg` was completely unused — the
+clippy-allow annotation was the smell. Callers had no
+way to tell what the function actually read.
+**Resolution:** Dropped the parameter. Signature is
+now `build_svg(&DashboardModel) -> String`. If a
+future layout variant needs render config it can be
+re-added then.
+
+### AQ-079 — `DaySummary::high_c: i32` conflated "0 °C" with "no data"
+**Category:** Type safety
+**Description:** `high_c` stored the magic value `0`
+when the day's temperature series was all-null,
+indistinguishable in the SVG from a real 0 °C day.
+**Resolution:** Changed to `Option<i32>`; SVG renders
+em-dash for `None`. Joint resolution with RT-067.
+
+### AQ-080 — `build_model` took `&RenderConfig` but used only `cfg.timezone`
+**Category:** API design
+**Description:** The signature advertised a dependency
+on the whole render config that wasn't real. Callers
+couldn't tell `build_model` didn't care about
+width/height/bit_depth.
+**Resolution:** Changed to
+`build_model(&Forecast, Tz, DateTime<Utc>) -> DashboardModel`.
+Publish loop call site extracts `self.render_cfg.timezone`
+at the call.
+
+### AQ-081 — `DaySummary::label` was stringly-typed
+**Category:** Type safety
+**Description:** `label: String` stored a
+pre-rendered 3-char weekday string. Tests had to
+assert on exact strings ("Sat", "Sun", …), and a
+locale-slip in `format!("{}", date.weekday())` would
+have compiled silently. The "labels are always
+English" invariant was implicit in whichever call
+site formatted first.
+**Resolution:** Field is now `weekday: chrono::Weekday`.
+The SVG builder has a private `weekday_label(Weekday)
+-> &'static str` table that is the single source of
+truth for the English abbreviations. A new test
+`weekday_label_is_three_char_english` locks it.
+
+### AQ-082 — `first_value` and `first_wind_components` duplicated option-chain shape
+**Category:** Code quality
+**Description:** Both helpers did "get series, copy,
+flatten, get first" with slightly different accessor
+paths, fuzzing the reader's mental model of how the
+`Forecast` shape is consulted.
+**Resolution:** Extracted `series_value_at(map, key,
+idx) -> Option<f64>` as the single option-chain site.
+`sample_value` wraps it with the
+`{wire_name}-surface` convention used by most series;
+`wind_components_at` calls it directly for the
+`wind_u`/`wind_v` keys.
+
 ## 2026-04-17 (feat — bundle m6x11plus font + `Renderer::with_default_fonts`)
 
 ### AQ-075 — `to_vec()` copy in `with_default_fonts` begged for an explanation

@@ -10,6 +10,59 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-17
+
+### Added
+
+- `bellwether::dashboard` module — replaces the
+  placeholder temperature bar with a real "current +
+  3-day forecast" layout. Public API:
+  `DashboardModel`, `CurrentConditions`, `DaySummary`,
+  `Condition`, `Compass8`, `classify_weather`,
+  `wind_to_compass`, `build_model`, `build_svg`, plus
+  per-condition SVG icon fragments under
+  `dashboard::icons`.
+- `dashboard::build_model` now takes an explicit
+  `now: DateTime<Utc>` and picks the forecast sample
+  closest to `now` for the current-conditions panel
+  (instead of blindly using index 0, which could be
+  hours stale depending on the Windy model run).
+- Config validation: `[windy] parameters` must
+  include `temp`, `wind`, `clouds`, and `precip`
+  when non-empty. A pre-0.8 config missing any of
+  these now fails at `Config::load` rather than
+  silently producing "Cloudy" tiles. Empty
+  `parameters` is still accepted for webhook-only
+  deployments. New error variant
+  `ConfigError::MissingRequiredWindyParameters`.
+
+### Changed
+
+- `bellwether-web` now builds its `Renderer` via
+  `Renderer::with_default_fonts()` at both the
+  placeholder-seeding and publish-loop call sites, so
+  dashboard text actually renders on startup and on
+  every tick.
+- `config.example.toml` `parameters` list updated to
+  include `"clouds"` and the comment rewritten.
+- `DaySummary::high_c` is `Option<i32>` (was `i32`).
+  A day whose temperature series was entirely null
+  but passed the sample-count gate now renders with
+  an em-dash placeholder instead of a misleading
+  "0°".
+- `DaySummary::label: String` replaced with
+  `DaySummary::weekday: chrono::Weekday`; the SVG
+  builder formats the label at render time via its
+  private `weekday_label` table. The dashboard's
+  "labels are always English" invariant now lives in
+  exactly one place.
+
+### Removed
+
+- The placeholder temperature-bar dashboard SVG
+  (`publish::build_dashboard_svg` free function) —
+  superseded by `dashboard::build_svg`.
+
 ## [0.7.0] - 2026-04-17
 
 ### Added

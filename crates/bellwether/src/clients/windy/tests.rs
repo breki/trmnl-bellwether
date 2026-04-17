@@ -346,7 +346,7 @@ async fn fetch_with_config_uses_loaded_api_key() {
          api_key_file = \"key.txt\"\n\
          lat = 46.05\n\
          lon = 14.51\n\
-         parameters = [\"temp\"]\n\
+         parameters = [\"temp\", \"wind\", \"clouds\", \"precip\"]\n\
          [trmnl]\n\
          mode = \"byos\"\n\
          public_image_base = \"http://x/\"\n",
@@ -361,7 +361,7 @@ async fn fetch_with_config_uses_loaded_api_key() {
             "lat": 46.05,
             "lon": 14.51,
             "model": "gfs",
-            "parameters": ["temp"],
+            "parameters": ["temp", "wind", "clouds", "precip"],
             "key": "loaded-key",
             "levels": ["surface"],
         })))

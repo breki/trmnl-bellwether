@@ -10,11 +10,13 @@ api_key_file = "windy_key.txt"
 lat = 46.05
 lon = 14.51
 model = "gfs"
-# Parameters the publish loop fetches. The current
-# placeholder dashboard only uses `temp`; the rest are
-# here so responses cache what future layouts will
-# want.
-parameters = ["temp", "wind", "precip"]
+# Parameters the publish loop fetches. All four are
+# required for the v1 dashboard: `temp` drives the big
+# number + daily highs, `wind` becomes the "Wind N km/h
+# XX" label (Windy returns this as two u/v component
+# series), and `clouds` + `precip` feed the condition
+# classifier (sunny / partly cloudy / cloudy / rain).
+parameters = ["temp", "wind", "clouds", "precip"]
 
 [trmnl]
 mode = "byos"

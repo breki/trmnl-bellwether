@@ -1,5 +1,6 @@
 pub mod clients;
 pub mod config;
+pub mod dashboard;
 pub mod publish;
 pub mod render;
 

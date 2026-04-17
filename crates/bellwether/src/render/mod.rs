@@ -42,6 +42,21 @@ use resvg::usvg;
 
 use crate::config::{BitDepth, RenderConfig};
 
+/// Bundled m6x11plus pixel font bytes. Exposed as a
+/// `&[u8]` so callers that need the raw data (tests,
+/// future alt renderers) can skip a [`Renderer`]
+/// round-trip.
+///
+/// m6x11plus is Daniel Linssen's proportional pixel
+/// font with extended Latin coverage. Distributed with
+/// attribution (see `crates/bellwether/src/render/fonts/README.md`).
+///
+/// Treat this as a trust-controlled bundled asset per
+/// the font trust boundary documented on
+/// [`Renderer::load_font_data`]; do not substitute a
+/// runtime-provided blob.
+pub const M6X11_TTF: &[u8] = include_bytes!("fonts/m6x11plus.ttf");
+
 /// Upper bound on the SVG-to-pixmap scale factor. Any
 /// SVG whose viewport is so small that scaling to the
 /// target pixmap would exceed this is rejected; the
@@ -135,6 +150,24 @@ impl Renderer {
         Self {
             options: usvg::Options::default(),
         }
+    }
+
+    /// Build a renderer with the bundled [`M6X11_TTF`]
+    /// font pre-loaded. Use this in production code that
+    /// needs to render dashboard text; [`Self::new`] stays
+    /// available for test code that wants an empty fontdb
+    /// or callers that prefer to load fonts themselves.
+    #[must_use]
+    pub fn with_default_fonts() -> Self {
+        let mut renderer = Self::new();
+        // fontdb stores the font bytes for its own
+        // lifetime, so its API takes owned `Vec<u8>`
+        // rather than `&[u8]` (see AQ-034). One 18 KiB
+        // copy per process is unavoidable; the
+        // `Renderer` doc tells callers to construct once
+        // and share.
+        renderer.load_font_data(M6X11_TTF.to_vec());
+        renderer
     }
 
     /// Load a font from raw bytes (TTF/OTF). Multi-face

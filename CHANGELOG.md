@@ -10,16 +10,35 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-17
+
 ### Added
 
+- `bellwether::render::M6X11_TTF: &[u8]` — the
+  bundled m6x11plus pixel font bytes (Daniel Linssen,
+  free-with-attribution). Compile-time-embedded via
+  `include_bytes!`; attribution in
+  `crates/bellwether/src/render/fonts/README.md`.
+- `Renderer::with_default_fonts() -> Self` —
+  production constructor that pre-loads `M6X11_TTF`.
+  Use this in servers / binaries that render
+  dashboard text; `Renderer::new()` stays available
+  for test code and callers that prefer to load
+  fonts themselves.
+- Font-pipeline tests: bundled TTF parses as
+  TrueType; glyph coverage spans
+  `0-9`/`A-Z`/`a-z`/space/`°`; end-to-end render of
+  `"0°C"` through the `with_default_fonts()`
+  pipeline produces non-trivial black pixel
+  coverage.
 - `config.example.toml` — commitable template. Copy
-  to `config.toml` (gitignored), fill in Windy key in
-  `windy_key.txt` (also gitignored).
+  to `config.toml` (gitignored), fill in Windy key
+  in `windy_key.txt` (also gitignored).
 - `README.md` grew a "Running the server" section
   covering the config → key → run flow and the
   `--dev` placeholder-only path.
 - `docs/developer/HANDOFF.md` rewritten for the
-  post-scaffold (v0.6.0) state.
+  post-scaffold state.
 
 ### Changed
 

@@ -1,6 +1,6 @@
 [package]
 name = "bellwether"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "TRMNL e-ink dashboard server core library"
 license = "MIT"
@@ -50,6 +50,13 @@ tracing = "0.1"
 assert_cmd = "2"
 predicates = "3"
 tempfile = "3"
+# Used only in `render/tests.rs` to assert the bundled
+# m6x11plus font covers the glyphs the dashboard needs
+# (notably U+00B0 °). Exact-pinned to the version
+# already in Cargo.lock via fontdb/usvg so we don't
+# end up with two `ttf-parser` copies if a minor bump
+# lands upstream while we're not looking.
+ttf-parser = "=0.25.1"
 wiremock = "0.6"
 
 [features]

@@ -6,6 +6,47 @@ findings.
 
 ---
 
+## 2026-04-17 (feat — bundle m6x11plus font + `Renderer::with_default_fonts`)
+
+### AQ-075 — `to_vec()` copy in `with_default_fonts` begged for an explanation
+**Category:** API design / readability
+**Description:** The new constructor did
+`renderer.load_font_data(M6X11_TTF.to_vec())`
+— a 18 KiB copy of a compile-time `&'static [u8]`.
+Technically unavoidable (fontdb's API takes owned
+`Vec<u8>`, see AQ-034), but without an inline
+comment future readers could mimic the pattern in
+hot paths thinking the copy is cheap.
+**Resolution:** Added a four-line comment at the
+call site naming the constraint, citing AQ-034, and
+referring callers to the "construct once per
+process" guidance on `Renderer`. Joint resolution
+with RT-062.
+
+### AQ-076 — Test reached into `Renderer`'s private `options.fontdb`
+**Category:** Abstraction boundary
+**Description:** `with_default_fonts_registers_m6x11_face`
+asserted `r.options.fontdb.len() == 1` in addition
+to the `Debug`-impl string check. The next-line
+`"font_count: 1"` check already covers the public
+contract; the field-access made the test fragile
+against harmless internal renames.
+**Resolution:** Dropped the private-field assertion.
+Test now relies solely on the `Debug`-impl string,
+which is the public contract.
+
+### AQ-077 — Single-letter binding `r` in public constructor body
+**Category:** Readability
+**Description:** `with_default_fonts` used
+`let mut r = Self::new(); … r`. The rest of the
+crate uses descriptive names (`renderer`,
+`pixmap`, `tree`); terse one-letter names read as
+draft code in a method that's directly reachable
+from the crate's public API docs.
+**Resolution:** Renamed to `renderer` throughout
+the function body. Test that similarly used `r`
+renamed to match.
+
 ## 2026-04-17 (chore — port 3100 + config.example + HANDOFF rewrite)
 
 ### AQ-070 — HANDOFF.md duplicated CLAUDE.md content

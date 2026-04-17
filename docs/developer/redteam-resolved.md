@@ -5,6 +5,68 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (feat — bundle m6x11plus font + `Renderer::with_default_fonts`)
+
+### RT-062 — `Renderer::with_default_fonts` copies 18 KiB per call
+**Category:** Correctness (minor)
+**Description:** Every call to the new
+`Renderer::with_default_fonts` constructor allocates
+a fresh `Vec<u8>` from the static `M6X11_TTF` slice.
+Intent is "construct once per process" (documented
+on `Renderer`), so in practice the copy happens once
+at startup, but a caller who misread the doc and
+built a renderer per-request would multiply that
+cost.
+**Resolution:** Not reverted — the copy is forced by
+`fontdb::Database::load_font_data` taking owned
+`Vec<u8>` (AQ-034). An inline comment on the call
+site now names this, cites AQ-034, and points
+readers back to the "construct once" guidance on
+`Renderer`. Joint resolution with AQ-075.
+
+### RT-063 — Glyph-coverage test only spot-checked range endpoints
+**Category:** Correctness (test weakness)
+**Description:** The `bundled_m6x11_font_covers_dashboard_glyphs`
+test asserted presence of `'A', 'Z', 'a', 'z', '0',
+'9'` — range endpoints only. A future font-subset
+step could drop a middle glyph (e.g. `'M'`) and the
+test would still pass even though the dashboard's
+day labels or condition names would render
+incorrectly.
+**Resolution:** Test rewritten to iterate
+`'0'..='9'`, `'A'..='Z'`, `'a'..='z'`, plus
+single-character ranges for `' '` and `'°'`. Every
+glyph the dashboard plausibly uses is now checked
+individually.
+
+### RT-064 — `"0°C"` rasterization threshold too lenient
+**Category:** Correctness (test weakness)
+**Description:** The end-to-end text-rendering test
+`with_default_fonts_renders_degree_sign_glyph`
+asserted `black > 50`. A broken font pipeline would
+produce zero glyph pixels; "0°C" at 36 px
+realistically produces hundreds. The threshold was
+low enough that e.g. stroke residue on an empty
+canvas could have slipped through.
+**Resolution:** Threshold raised to `> 200` with a
+comment explaining the calibration — well above the
+"stroke residue" floor, well below actual glyph
+coverage.
+
+### RT-065 — `ttf-parser` dev-dep claimed to be pinned but wasn't
+**Category:** Project configuration
+**Description:** `Cargo.toml` commented
+`ttf-parser = "0.25"` as "Pinned to the same version
+fontdb/usvg pull in transitively". Caret 0.25
+accepts any 0.25.x, not the exact version in
+`Cargo.lock`. If fontdb bumped to `0.26` upstream,
+the dev-dep and transitive could drift and land two
+`ttf-parser` copies in the tree.
+**Resolution:** Pinned to `"=0.25.1"` (the version
+already in `Cargo.lock`) and the comment rewritten
+to explain the intent (shared floor with fontdb,
+no dup-on-minor-drift).
+
 ## 2026-04-17 (chore — port 3100 + config.example + HANDOFF rewrite)
 
 ### RT-057 — Example config recommended quota-exhausting refresh rate

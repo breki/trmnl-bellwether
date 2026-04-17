@@ -7,6 +7,33 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Bundled m6x11plus pixel font (v0.7.0)
+
+    Added `bellwether::render::M6X11_TTF: &[u8]` as a
+    compile-time-embedded font blob and
+    `Renderer::with_default_fonts()` as the production
+    constructor that pre-loads it. Font is Daniel
+    Linssen's m6x11plus — a proportional 6×11 pixel
+    font with extended Latin coverage (attribution in
+    `crates/bellwether/src/render/fonts/README.md`).
+    Covers `U+00B0 °`, verified by an
+    iteration-over-full-ranges test rather than
+    endpoint spot-checks.
+
+    This is step 1 of PR 3d. The dashboard layout
+    itself lands in follow-up commits; this commit
+    only bundles the font and wires the renderer
+    constructor, leaving the placeholder SVG in place
+    for the moment. Isolating the font step means the
+    glyph-coverage decision is verifiable on its own
+    and future steps don't have to re-argue the font
+    choice.
+
+    `ttf-parser` added as a dev-dep (exact-pinned to
+    0.25.1, matching fontdb's transitive pull) so the
+    glyph-coverage test can check `Face::glyph_index`
+    directly rather than black-box rasterizing.
+
 - Fetch → render → publish loop (v0.6.0)
 
     New `bellwether::publish` module ties the Windy

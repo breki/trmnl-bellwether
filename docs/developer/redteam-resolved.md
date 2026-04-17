@@ -5,6 +5,38 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (chore — `cargo xtask test --ignored`)
+
+### RT-071 — `build_args` partially built args before validating filter
+**Category:** Correctness (ordering discipline)
+**Description:** With `ignored=true`, `build_args`
+pushed `"--"` into the result vec before checking
+whether the filter was empty. The function still
+returned `Err` in that case, but only because the
+`harness_args` outer guard and the empty-filter check
+sat in sequence — a future refactor that dropped
+either guard would ship a malformed command.
+**Resolution:** Moved the empty-filter check to the
+top of the function. The function now validates
+inputs before touching the output vec, so any future
+caller observing `Err` cannot see partial state. Added
+`build_args_empty_filter_errors_even_with_ignored` to
+pin the invariant.
+
+### RT-072 — Trailing-comma quirk in test assert
+**Category:** Style
+**Description:** `assert_eq!(args, vec![...],);`
+compiled but read like a missing third argument.
+**Resolution:** Dropped the trailing comma.
+
+### RT-073 — Em-dash in source comment
+**Category:** Style
+**Description:** `test_check` doc comment used a
+literal `—` (U+2014) while the rest of the file used
+ASCII `--`.
+**Resolution:** Replaced with ASCII and rephrased to
+avoid it.
+
 ## 2026-04-17 (feat — dashboard module with current + 3-day forecast layout)
 
 ### RT-066 — `build_current` used `timestamps[0]` regardless of `now`

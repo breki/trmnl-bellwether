@@ -3,15 +3,33 @@ use crate::helpers::{run_cargo_capture, run_cargo_stream};
 /// Maximum failure detail lines per test.
 const MAX_DETAIL_LINES: usize = 5;
 
+/// Knobs for [`test`]. Struct rather than a positional
+/// bool pair so the call site stays readable when more
+/// harness flags land (e.g. `include_ignored`,
+/// `test_threads`, …) and a future caller can't
+/// silently swap `verbose` and `ignored`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TestOptions<'a> {
+    /// Optional substring filter passed to cargo test.
+    pub filter: Option<&'a str>,
+    /// Stream raw cargo test output instead of the
+    /// compact summary.
+    pub verbose: bool,
+    /// Run only tests marked `#[ignore]`.
+    pub ignored: bool,
+}
+
 /// Run tests with concise output.
 ///
 /// Prints `Test OK` on success. On failure, shows only
 /// the failing test names and assertion details.
-/// With `verbose`, streams raw cargo test output.
-pub fn test(filter: Option<&str>, verbose: bool) -> Result<(), String> {
-    let args = build_args(filter)?;
+/// With `opts.verbose`, streams raw cargo test output.
+/// With `opts.ignored`, runs only `#[ignore]`-marked
+/// tests.
+pub fn test(opts: TestOptions<'_>) -> Result<(), String> {
+    let args = build_args(opts.filter, opts.ignored)?;
 
-    if verbose {
+    if opts.verbose {
         return run_cargo_stream(&args);
     }
 
@@ -59,9 +77,11 @@ pub fn test(filter: Option<&str>, verbose: bool) -> Result<(), String> {
 }
 
 /// Run tests quietly, returning Ok/Err based on exit
-/// code. Used by the validate module.
+/// code. Used by the validate module. Does not
+/// exercise `#[ignore]` tests; the validate pipeline
+/// runs the default suite only.
 pub fn test_check(filter: Option<&str>) -> Result<(), String> {
-    let args = build_args(filter)?;
+    let args = build_args(filter, false)?;
     let output = run_cargo_capture(&args)?;
 
     if output.status.success() {
@@ -76,15 +96,37 @@ pub fn test_check(filter: Option<&str>) -> Result<(), String> {
     }
 }
 
-/// Build the cargo test argument list.
-fn build_args(filter: Option<&str>) -> Result<Vec<&str>, String> {
+/// Build the cargo test argument list. `ignored` maps
+/// to cargo test's `--ignored` harness flag (runs only
+/// `#[ignore]`-marked tests); the flag must appear
+/// after the `--` separator so cargo forwards it to
+/// the test binary rather than trying to parse it
+/// itself.
+///
+/// Validates inputs before constructing any output:
+/// an invalid filter returns `Err` without touching
+/// the args vec, so callers can't observe a
+/// partially-built malformed command even if a future
+/// refactor drops the outer `harness_args` guard.
+fn build_args(
+    filter: Option<&str>,
+    ignored: bool,
+) -> Result<Vec<&str>, String> {
+    if let Some(f) = filter
+        && f.is_empty()
+    {
+        return Err("test filter must not be empty".into());
+    }
+
     let mut args = vec!["test", "--workspace"];
-    if let Some(f) = filter {
-        if f.is_empty() {
-            return Err("test filter must not be empty".into());
-        }
+    if ignored || filter.is_some() {
         args.push("--");
+    }
+    if let Some(f) = filter {
         args.push(f);
+    }
+    if ignored {
+        args.push("--ignored");
     }
     Ok(args)
 }
@@ -156,6 +198,51 @@ fn extract_failure_details(stdout: &str, stderr: &str) -> Vec<FailureDetail> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_args_plain_no_separator() {
+        // No filter, no --ignored → no `--` in args.
+        // Cargo test would otherwise see an empty
+        // harness section and print a warning.
+        let args = build_args(None, false).unwrap();
+        assert_eq!(args, vec!["test", "--workspace"]);
+    }
+
+    #[test]
+    fn build_args_filter_puts_separator_before_name() {
+        let args = build_args(Some("foo"), false).unwrap();
+        assert_eq!(args, vec!["test", "--workspace", "--", "foo"]);
+    }
+
+    #[test]
+    fn build_args_ignored_alone_still_gets_separator() {
+        // `--ignored` is a harness flag; it must land
+        // after `--` so cargo forwards it to the test
+        // binary rather than trying to parse it itself.
+        let args = build_args(None, true).unwrap();
+        assert_eq!(args, vec!["test", "--workspace", "--", "--ignored"]);
+    }
+
+    #[test]
+    fn build_args_filter_and_ignored_compose() {
+        let args = build_args(Some("foo"), true).unwrap();
+        assert_eq!(args, vec!["test", "--workspace", "--", "foo", "--ignored"]);
+    }
+
+    #[test]
+    fn build_args_empty_filter_errors() {
+        assert!(build_args(Some(""), false).is_err());
+    }
+
+    #[test]
+    fn build_args_empty_filter_errors_even_with_ignored() {
+        // An empty filter must short-circuit before any
+        // output is produced, regardless of what other
+        // harness flags the caller asked for. Pins the
+        // validate-first invariant so a future refactor
+        // can't silently emit a half-built command.
+        assert!(build_args(Some(""), true).is_err());
+    }
 
     #[test]
     fn extract_failed_names_from_output() {

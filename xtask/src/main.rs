@@ -30,6 +30,13 @@ enum XCommand {
         /// Show raw cargo test output
         #[arg(long)]
         verbose: bool,
+        /// Run only tests marked `#[ignore]`. Matches
+        /// `cargo test -- --ignored` exactly: the
+        /// non-ignored suite is skipped. Combine with a
+        /// filter to run a single manual tool, e.g.
+        /// `cargo xtask test --ignored generate_dashboard_sample_bmp`.
+        #[arg(long)]
+        ignored: bool,
     },
     /// Run fmt + clippy + tests + coverage + duplication
     Validate,
@@ -47,9 +54,15 @@ fn main() {
     let result = match cli.command {
         XCommand::Check => check::check(),
         XCommand::Clippy => clippy_cmd::clippy(),
-        XCommand::Test { filter, verbose } => {
-            test_cmd::test(filter.as_deref(), verbose)
-        }
+        XCommand::Test {
+            filter,
+            verbose,
+            ignored,
+        } => test_cmd::test(test_cmd::TestOptions {
+            filter: filter.as_deref(),
+            verbose,
+            ignored,
+        }),
         XCommand::Validate => validate::validate(),
         XCommand::Fmt => fmt_cmd::fmt(),
         XCommand::Coverage => coverage::coverage(),

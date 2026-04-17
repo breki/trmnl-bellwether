@@ -6,6 +6,24 @@ findings.
 
 ---
 
+## 2026-04-17 (chore — `cargo xtask test --ignored`)
+
+### AQ-083 — `test_cmd::test` grew to three positional args
+**Category:** API design
+**Description:** Adding `ignored: bool` alongside the
+existing `verbose: bool` made `test(filter, verbose,
+ignored)` a three-arg signature where two are bools.
+Readable at first, but bug-inviting when a future
+fourth flag (e.g. `include_ignored`, `test_threads`)
+lands — the call site would have to count positions.
+**Resolution:** Introduced a `TestOptions<'a> {
+filter, verbose, ignored }` struct. `test` now takes
+it by value. `main.rs` destructures `XCommand::Test`
+into the struct at the call site, so every field is
+named at both the producer and consumer. `test_check`
+(internal to validate) keeps its `filter`-only
+signature because it never exposes the other flags.
+
 ## 2026-04-17 (feat — dashboard module with current + 3-day forecast layout)
 
 ### AQ-078 — `build_svg` took `&RenderConfig` for "forward compatibility" but read none of it

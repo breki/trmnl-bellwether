@@ -6,6 +6,117 @@ findings.
 
 ---
 
+## 2026-04-17 (PR 2 — v0.3.0 Windy client)
+
+### AQ-016 — `WindyError` over-differentiated `reqwest::Error`
+**Category:** Error design
+**Description:** Three variants (`BuildClient`,
+`Transport`, `Parse`) wrapped the same underlying type
+for no programmatic distinction.
+**Resolution:** Collapsed to a single
+`Http(Box<reqwest::Error>)` variant with
+`impl From<reqwest::Error>`. Callers needing
+fine-grained distinctions can match on the inner error
+via `.is_timeout()` / `.is_connect()` / `.is_decode()`.
+`BuildClient` variant removed entirely because
+`Client::new` is now infallible (see AQ-019).
+
+### AQ-017 — `reqwest::Error` leaked in public source chain
+**Category:** Abstraction
+**Resolution:** Wrapped in `Box<reqwest::Error>` in the
+`Http` variant (parallels the `Box<toml::de::Error>`
+treatment in config `ParseToml`). Still exposes the
+type, but boxed and explicitly called out; consumers
+that don't care can Display/Debug without depending on
+`reqwest` themselves.
+
+### AQ-018 — `Api::body: String` payload size
+**Category:** Memory layout
+**Resolution:** Changed to `Box<str>` — 16 bytes in the
+discriminant union instead of 24, and signals the body
+is immutable once constructed.
+
+### AQ-019 — `Client::new` / `with_base_url` returned `Result` despite near-infallibility
+**Category:** API design
+**Resolution:** Both are now infallible: they panic
+with a clear message if TLS init fails. Matches
+`reqwest::Client::new`'s semantics. Added `Default` impl
+for ergonomics. `WindyError::BuildClient` removed.
+
+### AQ-020 — `FetchRequest<'a>` borrowed-only forced awkward storage
+**Category:** API design
+**Resolution:** `FetchRequest` is now owned
+(`String`/`Vec<WindyParameter>`). Schedulers and the
+web layer can store one between ticks without lifetime
+juggling. One extra clone per fetch, negligible
+compared to the HTTP round-trip.
+
+### AQ-021 — No `fetch_with_config(&WindyConfig)` convenience
+**Category:** API design
+**Resolution:** Added `Client::fetch_with_config` and
+`FetchRequest::from_config(&WindyConfig)` — the latter
+returns `WindyError::MissingApiKey` if the config was
+parsed via `Config::from_toml_str` (which doesn't
+populate the secret). Two tests cover happy path and
+missing-key path.
+
+### AQ-022 — `Forecast` exposed Windy wire-format keys as stringly-typed map
+**Category:** Abstraction
+**Resolution:** Added `Forecast::values(parameter:
+WindyParameter) -> Option<&[Option<f64>]>` that handles
+the `"{wire_name}-surface"` key computation internally.
+Keys remain `String` for flexibility (levels beyond
+surface will be added later); renderers should prefer
+`values()` for known parameters. Also added
+`WindyParameter::wire_name()` with a test
+(`wire_name_matches_serde_rename`) that asserts the
+function and the `#[serde(rename)]` attributes stay
+aligned.
+
+### AQ-023 — same concern as RT-009 (flatten trap)
+**Resolution:** See RT-009.
+
+### AQ-024 — `InvalidTimestamp` message was unhelpful
+**Category:** Error messaging
+**Resolution:** Renamed to a struct variant
+`InvalidTimestamp { ms }` with message "invalid
+timestamp {ms} ms from Windy response (outside
+DateTime<Utc> range)".
+
+### AQ-025 — `Client` lacked `#[derive(Debug)]`
+**Resolution:** Added `#[derive(Debug, Clone)]`.
+
+### AQ-026 — `DEFAULT_BASE_URL` + path duplication
+**Resolution:** Added `ENDPOINT_PATH` and
+`DEFAULT_ENDPOINT` constants plus a
+`Client::endpoint()` accessor. Test
+`endpoint_composes_base_and_path` locks the
+composition. Test `default_endpoint_constant_matches_composition`
+asserts the constant agrees with the computed value.
+
+### AQ-027 — Module approaching 500-line threshold
+**Resolution:** Promoted `clients/windy.rs` to a
+directory module (`clients/windy/{mod,tests}.rs`).
+Production code in `mod.rs`; all unit tests in
+`tests.rs` via `#[cfg(test)] mod tests;`.
+
+### AQ-028 — `live_windy` used runtime env-var branching
+**Category:** Test hygiene
+**Resolution:** Gated on `#[cfg(feature =
+"live-tests")]`. Added a `live-tests` feature in
+`Cargo.toml`. Default builds no longer compile the
+test; `cargo test --features live-tests -- --ignored
+live_windy` runs it with `BELLWETHER_WINDY_KEY` set.
+
+### AQ-029 — `fetch(&FetchRequest<'_>)` took by reference
+**Resolution:** Takes `FetchRequest` by value now,
+matching reqwest's builder idiom. Works with owned
+fields from AQ-020.
+
+### AQ-030 — Trailing commas on single-line `assert_eq!`
+**Resolution:** rustfmt left most alone; those it kept
+are multi-line. Functionally irrelevant.
+
 ## 2026-04-17 (PR 1 — v0.2.0 config skeleton)
 
 ### AQ-001 — `ConfigError::Toml` leaked `toml::de::Error`

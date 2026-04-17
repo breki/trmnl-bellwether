@@ -3,7 +3,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Windy Point Forecast configuration.
 ///
@@ -71,27 +71,56 @@ impl fmt::Debug for WindyConfig {
 
 /// Windy Point Forecast parameters. The closed set
 /// supported by Windy's API — add variants as the
-/// forecast client starts consuming them.
-#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
+/// forecast client starts consuming them. Serde names
+/// match Windy's wire format (camelCase for compound
+/// names, lowercase otherwise).
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Clone, Copy)]
 #[non_exhaustive]
 pub enum WindyParameter {
     /// Air temperature.
+    #[serde(rename = "temp")]
     Temp,
-    /// Wind speed and direction.
+    /// Wind speed and direction (u/v components).
+    #[serde(rename = "wind")]
     Wind,
     /// Wind gusts.
+    #[serde(rename = "windGust")]
     WindGust,
     /// Precipitation.
+    #[serde(rename = "precip")]
     Precip,
     /// Surface pressure.
+    #[serde(rename = "pressure")]
     Pressure,
     /// Cloud cover.
+    #[serde(rename = "clouds")]
     Clouds,
     /// Relative humidity.
+    #[serde(rename = "rh")]
     Rh,
     /// Dewpoint temperature.
+    #[serde(rename = "dewpoint")]
     Dewpoint,
+}
+
+impl WindyParameter {
+    /// Wire name as used in Windy requests (JSON
+    /// `parameters` array) and response series keys
+    /// (`"{wire_name}-{level}"`). Kept in sync with the
+    /// `#[serde(rename)]` attributes above; a unit test
+    /// asserts equivalence.
+    pub fn wire_name(self) -> &'static str {
+        match self {
+            Self::Temp => "temp",
+            Self::Wind => "wind",
+            Self::WindGust => "windGust",
+            Self::Precip => "precip",
+            Self::Pressure => "pressure",
+            Self::Clouds => "clouds",
+            Self::Rh => "rh",
+            Self::Dewpoint => "dewpoint",
+        }
+    }
 }
 
 fn default_windy_model() -> String {
@@ -101,6 +130,28 @@ fn default_windy_model() -> String {
 #[cfg(test)]
 mod tests {
     use super::super::Config;
+    use super::*;
+
+    #[test]
+    fn wire_name_matches_serde_rename() {
+        // Lock the invariant: `wire_name()` and the
+        // #[serde(rename)] values must agree, else the
+        // Windy client's request bodies disagree with
+        // its response-series key lookups.
+        for p in [
+            WindyParameter::Temp,
+            WindyParameter::Wind,
+            WindyParameter::WindGust,
+            WindyParameter::Precip,
+            WindyParameter::Pressure,
+            WindyParameter::Clouds,
+            WindyParameter::Rh,
+            WindyParameter::Dewpoint,
+        ] {
+            let serialized = serde_json::to_string(&p).unwrap();
+            assert_eq!(serialized, format!("\"{}\"", p.wire_name()));
+        }
+    }
 
     #[test]
     fn debug_redacts_api_key() {

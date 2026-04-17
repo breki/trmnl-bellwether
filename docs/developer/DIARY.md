@@ -7,6 +7,31 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Windy Point Forecast client (v0.3.0)
+
+    `clients::windy::{Client, FetchRequest, Forecast,
+    WindyError}` — thin transport over reqwest that
+    POSTs lat/lon/model/parameters/key to Windy's
+    Point Forecast v2 and returns a parsed
+    `Forecast` with typed
+    `values(WindyParameter)` lookup. `null` values
+    preserved as `Option<f64>`; `ts` + series length
+    mismatch rejected at parse time; empty `ts`
+    returns `EmptyForecast`. Forward-compat
+    non-numeric metadata fields in responses are
+    silently ignored rather than breaking parsing.
+    Security posture: `Policy::none()` on redirects
+    (prevents cross-origin key leak on DNS hijack);
+    API key redacted from error bodies; per-Client
+    body-size caps (4 MiB success, 4 KiB error).
+    Added `connect_timeout(5s)` + `gzip` feature on
+    reqwest for RPi network realities. `WindyParameter`
+    picked up `Serialize` + per-variant renames so
+    `windGust` round-trips correctly (it was silently
+    emitted as `windgust` before). 30 review findings
+    from red-team + artisan — all addressed in PR;
+    see `redteam-resolved.md` / `artisan-resolved.md`.
+
 - Design spike + config skeleton (v0.2.0)
 
     Closed the five open questions flagged in

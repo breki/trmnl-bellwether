@@ -10,6 +10,45 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-17
+
+### Added
+
+- `bellwether::clients::windy` — HTTP client for the
+  Windy Point Forecast v2 API. `Client`,
+  `FetchRequest` (owned fields for schedulers),
+  `Forecast`, and `WindyError`. Typed lookup via
+  `Forecast::values(WindyParameter)`. Convenience
+  `Client::fetch_with_config(&WindyConfig)`.
+- `WindyParameter::wire_name()` — stable mapping from
+  variant to Windy wire string, test-verified against
+  the `#[serde(rename)]` attributes.
+- Per-client body-size caps
+  (`with_max_response_bytes` / `with_max_error_body_bytes`)
+  with sensible defaults (4 MiB / 4 KiB).
+- `live-tests` feature flag gating the real-network
+  `live_windy` smoke test.
+
+### Changed
+
+- `WindyParameter` now derives `Serialize` and uses
+  per-variant `#[serde(rename)]` matching Windy's wire
+  format (camelCase for `windGust`, lowercase
+  otherwise). Previously `rename_all = "lowercase"`
+  silently mis-spelled `windGust` as `windgust`.
+
+### Security
+
+- Windy client rejects cross-origin redirects
+  (`reqwest::redirect::Policy::none()`), preventing
+  API-key leakage if `api.windy.com` is DNS-hijacked
+  or the CDN is compromised.
+- Error responses are scanned and the API key is
+  redacted before the body surfaces in
+  `WindyError::Api`.
+- Response bodies are size-capped to prevent OOM from
+  a misbehaving proxy or server.
+
 ## [0.2.0] - 2026-04-17
 
 ### Added

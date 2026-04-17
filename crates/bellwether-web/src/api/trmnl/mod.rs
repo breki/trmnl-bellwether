@@ -47,7 +47,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use bellwether::publish::{ImageSink, SinkError};
+use bellwether::publish::{DeviceTelemetry, ImageSink, SinkError};
 use serde::{Serialize, Serializer};
 
 /// Maximum request body size for `POST /api/log`.
@@ -232,6 +232,12 @@ pub struct TrmnlState {
     /// If set, incoming requests must include an
     /// `Access-Token` header matching this exactly.
     access_token: Option<Arc<str>>,
+    /// Latest telemetry parsed from a `/api/log`
+    /// post. `RwLock` for consistency with the
+    /// module's other caches (`ImageStore`); reads
+    /// copy out a snapshot so the lock is held only
+    /// briefly, writes merge under an exclusive lock.
+    telemetry: Arc<RwLock<DeviceTelemetry>>,
 }
 
 impl TrmnlState {
@@ -248,6 +254,7 @@ impl TrmnlState {
             public_image_base: Arc::from(normalized),
             default_refresh_interval,
             access_token: None,
+            telemetry: Arc::new(RwLock::new(DeviceTelemetry::default())),
         })
     }
 
@@ -296,6 +303,32 @@ impl TrmnlState {
     pub fn default_refresh_interval(&self) -> RefreshInterval {
         self.default_refresh_interval
     }
+
+    /// Merge fresh fields into the cached device
+    /// telemetry. Called by the `/api/log` handler
+    /// every time the device posts. Fields in `update`
+    /// that are `None` leave the previous cached
+    /// value intact — posts without a battery voltage
+    /// (keepalives, error reports) don't wipe the
+    /// most recent battery reading.
+    pub fn update_telemetry(&self, update: DeviceTelemetry) {
+        let mut cached = self
+            .telemetry
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cached.merge_from(update);
+    }
+
+    /// Snapshot the cached device telemetry. Used by
+    /// both the `ImageSink` impl (read by the publish
+    /// loop each tick) and by tests.
+    #[must_use]
+    pub fn telemetry(&self) -> DeviceTelemetry {
+        *self
+            .telemetry
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 impl ImageSink for TrmnlState {
@@ -306,6 +339,10 @@ impl ImageSink for TrmnlState {
     ) -> Result<(), SinkError> {
         self.put_image(filename, Bytes::from(bytes))
             .map_err(|e| Box::new(e) as SinkError)
+    }
+
+    fn latest_telemetry(&self) -> DeviceTelemetry {
+        self.telemetry()
     }
 }
 
@@ -390,13 +427,21 @@ struct TelemetryPayload {
     extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
-/// Handler: accept a small telemetry blob. Logs known
-/// fields as structured attributes at `INFO`; logs the
-/// full payload at `DEBUG` for investigating unusual
-/// shapes without flooding normal-level logs. Body
-/// size is capped at [`MAX_LOG_BODY_BYTES`] via the
-/// route's [`DefaultBodyLimit`] layer.
-async fn log(Json(payload): Json<TelemetryPayload>) -> StatusCode {
+/// Handler: accept a small telemetry blob. Logs
+/// known fields as structured attributes at `INFO`;
+/// logs the full payload at `DEBUG` for
+/// investigating unusual shapes without flooding
+/// normal-level logs. Body size is capped at
+/// [`MAX_LOG_BODY_BYTES`] via the route's
+/// [`DefaultBodyLimit`] layer.
+///
+/// Also caches the parsed `battery_voltage` on
+/// `TrmnlState` so the next publish tick's rendered
+/// dashboard can reflect current device telemetry.
+async fn log(
+    State(state): State<TrmnlState>,
+    Json(payload): Json<TelemetryPayload>,
+) -> StatusCode {
     tracing::info!(
         battery_voltage = ?payload.battery_voltage,
         rssi = ?payload.rssi,
@@ -405,13 +450,16 @@ async fn log(Json(payload): Json<TelemetryPayload>) -> StatusCode {
         "trmnl device log",
     );
     if !payload.extra.is_empty() {
-        // Only at DEBUG so an unusual field won't pollute
-        // normal-level logs.
+        // Only at DEBUG so an unusual field won't
+        // pollute normal-level logs.
         tracing::debug!(
             extra = ?payload.extra,
             "trmnl device log extras",
         );
     }
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: payload.battery_voltage.map(f64::from),
+    });
     StatusCode::NO_CONTENT
 }
 

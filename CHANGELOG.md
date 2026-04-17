@@ -10,6 +10,77 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-04-17
+
+### Added
+
+- `bellwether::dashboard::astro` — sunrise/sunset
+  calculation module (NOAA solar position algorithm,
+  no new crate dependency). `GeoPoint { lat_deg,
+  lon_deg }` packs coordinates so accidental swaps
+  become compile errors.
+- `bellwether::dashboard::feels_like` — apparent
+  temperature module combining the NWS heat-index
+  (Rothfusz) and wind-chill (2001) formulas with
+  NaN-guarded fallback to raw temperature.
+- `bellwether::telemetry` — new neutral module
+  hosting `DeviceTelemetry` (last-reported battery
+  voltage from `/api/log`) and
+  `battery_voltage_to_pct` (linear `LiPo` voltage →
+  percent). `publish` re-exports both for existing
+  import paths.
+- `publish::ImageSink::latest_telemetry` default-
+  method returning `DeviceTelemetry::default()`;
+  `TrmnlState` overrides to return its cached value.
+- `TrmnlState::update_telemetry` + `telemetry()`
+  methods (web crate). Behind an
+  `Arc<RwLock<DeviceTelemetry>>`; the `/api/log`
+  handler calls `update_telemetry` on every post
+  and merges fresh fields into the cache, keeping
+  prior values for fields the new post omits.
+- `dashboard::ModelContext { tz, location, now,
+  telemetry }` — a single `Copy` struct passed to
+  `build_model`, replacing the previous
+  `(tz, DateTime<Utc>)` positional pair.
+- `dashboard::TodaySummary` with today's high / low
+  / sunrise / sunset.
+- `CurrentConditions.feels_like_c`,
+  `gust_kmh: Option<f64>`, `humidity_pct:
+  Option<f64>`.
+- `DaySummary.low_c: Option<i32>`.
+- `DashboardModel.battery_pct: Option<u8>` derived
+  from `ctx.telemetry`.
+
+### Changed
+
+- **Breaking:** `dashboard::build_model` signature is
+  now `(forecast: &Forecast, ctx: ModelContext) ->
+  DashboardModel`. Was `(forecast, tz,
+  DateTime<Utc>)`.
+- **Breaking:** `REQUIRED_WINDY_PARAMETERS` now
+  includes `Rh` and `WindGust`. Pre-0.10 configs
+  that only listed `temp` + `wind` + `clouds` +
+  `precip` fail at `Config::load` with
+  `MissingRequiredWindyParameters`.
+- Humidity (`rh-surface`) is clamped to `[0, 100]`
+  at the model boundary to protect the feels-like
+  calculation from out-of-range Windy glitches.
+- `nearest_sample_index` uses `saturating_abs`
+  rather than `abs` so a malformed timestamp can't
+  panic the publish loop.
+- `dashboard/model.rs` split into `model/mod.rs` +
+  `model/tests.rs` to stay under the 500-line
+  threshold.
+
+### Note
+
+This commit is groundwork — no user-visible output
+change. The SVG builder still emits the v0.9
+"current + 3-day forecast" layout; the new model
+fields populate but aren't rendered. The dense
+header + today + meteorology-strip layout lands in
+v0.11.0.
+
 ## [0.9.0] - 2026-04-17
 
 ### Changed

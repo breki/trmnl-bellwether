@@ -5,6 +5,87 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (feat — v0.10.0 dashboard data-model groundwork)
+
+### RT-077 — astro ephemeris anchored to UTC noon of local date
+**Category:** Correctness
+**Description:** `sunrise_sunset` computed its
+Julian century from UTC noon of the calendar date
+`date`, regardless of the supplied `tz`. For
+timezones offset more than ±12 hours from UTC
+(Kiritimati UTC+14, Samoa/Kiribati, American Samoa),
+that anchor can be a full day away from the actual
+sunrise/sunset event, stretching ephemeris drift
+(declination, equation-of-time) to ~0.4°. On top of
+that the returned `NaiveTime` was constructed from
+UTC midnight of the supplied `date` — which worked
+for the tested latitudes but was fragile.
+**Resolution:** `sunrise_sunset` now computes JD from
+the UTC instant of **local noon** on the requested
+local date. That keeps the ephemeris reference within
+±12h of any sunrise/sunset on the date regardless
+of longitude, and the returned wall-clock time is
+derived by converting the sunrise/sunset UTC instant
+into `tz`. Added a Kiritimati (UTC+14) test that
+would have failed under the old anchor. Joint
+resolution with RT-080.
+
+### RT-078 — `nearest_sample_index` could panic on extreme timestamp
+**Category:** Correctness (DoS)
+**Description:** `(ts - now).num_seconds().abs()`
+panics on `i64::MIN`. A crafted or corrupt Windy
+JSON with a timestamp near the extremes of
+`i64::MIN_MS` would crash the publish loop.
+**Resolution:** Replaced with `.saturating_abs()`
+and added an inline comment citing the hardening
+rationale.
+
+### RT-079 — `/api/log` handler wiped cached battery on partial posts
+**Category:** Correctness (semantics)
+**Description:** The TRMNL firmware posts `/api/log`
+for multiple reasons — wake-up reports, error
+reports, keepalives. Not every post includes a
+battery voltage. The previous `update_telemetry`
+overwrote the whole cached `DeviceTelemetry`, so a
+keepalive without a battery field would wipe the
+last-known voltage, making the dashboard's battery
+indicator flicker to "unknown" between genuine
+reports.
+**Resolution:** Added `DeviceTelemetry::merge_from`
+that only updates fields whose value in the incoming
+post is `Some`. `TrmnlState::update_telemetry` now
+calls merge. Updated the
+`log_without_battery_voltage_keeps_previous_value`
+test to lock the new semantic (previously asserted
+the overwrite-to-`None` behaviour, now asserts
+preservation).
+
+### RT-080 — Humidity from Windy not clamped before feeding feels-like
+**Category:** Correctness
+**Description:** `build_current` stored the raw
+`rh-surface` value and passed it to
+`apparent_temperature_c`. The Rothfusz heat-index
+regression is only calibrated for `rh` in `[40,
+100]`; feeding `rh=150` (Windy glitch territory)
+produces a wildly high apparent temperature without
+any boundary check.
+**Resolution:** Clamp humidity to `[0, 100]` at the
+`build_current` boundary with an inline comment
+citing the rationale. Both the `humidity_pct` field
+and the feels-like input see the clamped value.
+
+### RT-081 — Astro at equinox near date line could flip "polar day" flag
+**Category:** Correctness (edge case)
+**Description:** A 1-day ephemeris error at high
+latitudes near an equinox could push the
+`hour_angle` arccos argument across the ±1
+boundary, spuriously flipping between "sun rises"
+and "polar night" on the wrong day.
+**Resolution:** Subsumed by RT-077's local-noon
+anchor; the ephemeris is now always within ±12h of
+the target date's events so the declination value
+is correct for the day the dashboard is rendering.
+
 ## 2026-04-17 (feat — swap dashboard font to Atkinson Hyperlegible)
 
 ### RT-074 — Changelog missed 0.9.0 breaking rename

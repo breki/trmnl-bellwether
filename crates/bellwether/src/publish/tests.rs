@@ -371,7 +371,16 @@ async fn generate_dashboard_sample_bmp() {
     let (_server, windy) = stubbed_windy(rich_forecast_fixture_at(start)).await;
     let forecast = windy.fetch(&ok_request()).await.expect("fetch");
     let cfg = trmnl_og_render_cfg();
-    let model = dashboard::build_model(&forecast, cfg.timezone, now);
+    let ctx = dashboard::ModelContext {
+        tz: cfg.timezone,
+        location: dashboard::astro::GeoPoint {
+            lat_deg: ok_request().lat,
+            lon_deg: ok_request().lon,
+        },
+        now,
+        telemetry: DeviceTelemetry::default(),
+    };
+    let model = dashboard::build_model(&forecast, ctx);
     let svg = dashboard::build_svg(&model);
     let bmp = Renderer::with_default_fonts()
         .render_to_bmp(&svg, &cfg)
@@ -442,6 +451,16 @@ fn count_black_pixels(bmp: &[u8]) -> usize {
         }
     }
     count
+}
+
+#[test]
+fn image_sink_default_latest_telemetry_is_all_none() {
+    // MockSink doesn't override `latest_telemetry`, so
+    // the default-method contract is that it returns
+    // a fully-empty telemetry.
+    let sink = MockSink::new();
+    let t = sink.latest_telemetry();
+    assert_eq!(t, DeviceTelemetry::default());
 }
 
 #[tokio::test]

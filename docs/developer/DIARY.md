@@ -7,6 +7,67 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Dashboard model groundwork for redesign (v0.10.0)
+
+    No user-visible output change yet — the SVG
+    builder is still the v0.9 layout. This commit
+    extends the data-model pipeline to carry
+    everything the upcoming dense-layout SVG will
+    consume:
+
+    - `dashboard::astro` — hand-rolled NOAA
+      sunrise/sunset algorithm, no new crate
+      dependency. Anchored to local noon on the
+      requested local date so the ephemeris is
+      always within ±12h of any sunrise/sunset
+      event; avoids spurious "polar day/night"
+      flips near date-line longitudes at equinox.
+      `GeoPoint { lat_deg, lon_deg }` packs the
+      coordinates so a swap compiles as an error
+      rather than rendering the wrong city.
+    - `dashboard::feels_like` — pure
+      `apparent_temperature_c` combining NWS heat
+      index (above 26.7 °C, ≥ 40 % RH) and wind
+      chill (below 10 °C, > 4.8 km/h). NaN-guarded
+      fallback to raw temp.
+    - `crate::telemetry` — new neutral module
+      hosting `DeviceTelemetry` and
+      `battery_voltage_to_pct`. Both `publish` and
+      `dashboard` depend on it, breaking what used
+      to be a mutual `publish ↔ dashboard`
+      dependency. `ImageSink` gains a default-method
+      `latest_telemetry()` returning all-`None` by
+      default. `DeviceTelemetry::merge_from` keeps
+      prior field values when a keepalive post
+      omits them.
+    - `TrmnlState` (web crate) caches the latest
+      telemetry behind an `Arc<RwLock<_>>` (matching
+      the `ImageStore` convention) and
+      `/api/log` merges parsed battery voltages into
+      it on every post.
+    - `ModelContext` struct unifies `tz`, `location`,
+      `now`, and `telemetry` into one `Copy` value
+      passed to `build_model`. `TodaySummary`
+      adds today's high/low + sunrise/sunset.
+      `CurrentConditions` gains `feels_like_c`,
+      `gust_kmh`, `humidity_pct`. `DaySummary`
+      gains `low_c`. Humidity clamped to `[0, 100]`
+      to protect the Rothfusz formula from Windy
+      glitch values.
+    - Config validation extended to require `rh` +
+      `windGust` in `[windy] parameters`; pre-0.10
+      configs fail at `Config::load` with a clear
+      message.
+    - `dashboard/model.rs` split to `model/mod.rs`
+      + `model/tests.rs` to stay under the 500-line
+      CLAUDE.md threshold.
+
+    63 new unit tests (astro 6, feels_like 11,
+    telemetry 7, dashboard model 12, trmnl log 3,
+    config 2, +21 test-file moves / extensions).
+    All existing tests pass through the new
+    `ModelContext` shape.
+
 - Swapped dashboard font to Atkinson Hyperlegible (v0.9.0)
 
     The m6x11plus pixel font was correct at its

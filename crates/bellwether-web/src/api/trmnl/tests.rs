@@ -249,6 +249,86 @@ async fn log_accepts_known_fields() {
 }
 
 #[tokio::test]
+async fn log_persists_battery_voltage_into_state() {
+    // After a successful `/api/log` post the state's
+    // cached telemetry should include the device's
+    // last-reported battery voltage, ready for the
+    // publish loop to read on the next tick.
+    let state = test_state();
+    let app = router(state.clone());
+    let body = serde_json::json!({
+        "battery_voltage": 4.01,
+        "rssi": -67,
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/log")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let telemetry = state.telemetry();
+    let voltage = telemetry.battery_voltage.expect("voltage persisted");
+    assert!(
+        (voltage - 4.01).abs() < 1e-3,
+        "expected ~4.01 V, got {voltage}",
+    );
+}
+
+#[tokio::test]
+async fn log_without_battery_voltage_keeps_previous_value() {
+    // The TRMNL firmware posts `/api/log` for many
+    // reasons (wake-up reports, error reports,
+    // keepalives) and not every post includes a
+    // battery reading. A merge-semantic cache keeps
+    // the last-known voltage until a fresh one
+    // arrives; a naive "overwrite" would blink the
+    // battery indicator to "unknown" every time a
+    // keepalive came in.
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(3.7),
+    });
+    assert_eq!(state.telemetry().battery_voltage, Some(3.7));
+
+    let app = router(state.clone());
+    let body = serde_json::json!({ "rssi": -70 });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/log")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(state.telemetry().battery_voltage, Some(3.7));
+}
+
+#[test]
+fn trmnl_state_as_image_sink_exposes_telemetry() {
+    // Via the ImageSink trait extension the publish
+    // loop sees the same cached value the `/api/log`
+    // handler writes. Goes through the trait to
+    // catch any accidental method-name drift.
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(3.8),
+    });
+    let sink: &dyn ImageSink = &state;
+    assert_eq!(sink.latest_telemetry().battery_voltage, Some(3.8));
+}
+
+#[tokio::test]
 async fn log_rejects_oversized_body() {
     let app = router(test_state());
     let big = "x".repeat(MAX_LOG_BODY_BYTES + 1);

@@ -6,6 +6,82 @@ findings.
 
 ---
 
+## 2026-04-17 (feat — v0.10.0 dashboard data-model groundwork)
+
+### AQ-086 — `model.rs` grew to 912 lines and held 5 pub structs
+**Category:** Module size
+**Description:** After adding `TodaySummary`,
+`ModelContext`, extended `CurrentConditions`, and
+`DaySummary.low_c`, `dashboard/model.rs` crossed
+the 500-line CLAUDE.md threshold. Tests alone
+contributed ~420 lines to the file.
+**Resolution:** Converted `model.rs` to
+`model/mod.rs` (497 lines — production code + doc
+comments) and extracted the test module to
+`model/tests.rs` (417 lines). Matches the existing
+`clients/windy` split convention.
+
+### AQ-087 — `dashboard::model` depended on `publish`
+**Category:** Abstraction boundaries
+**Description:** `model.rs` imported
+`DeviceTelemetry` and `battery_voltage_to_pct` from
+`crate::publish`. But `publish::tick_once` imports
+`dashboard::build_model`. The mutual recursion between
+`dashboard` and `publish` left readers with a "where
+does telemetry belong?" question at every touch.
+**Resolution:** Created a neutral
+`crate::telemetry` module and moved both
+`DeviceTelemetry` and `battery_voltage_to_pct`
+there. `publish` re-exports them for backwards
+compatibility of the import path
+(`bellwether::publish::DeviceTelemetry` still works)
+while `dashboard::model` imports from
+`crate::telemetry` directly. The mutual-recursion
+is gone.
+
+### AQ-088 — `lat: f64, lon: f64` pair was a swap hazard
+**Category:** Type safety
+**Description:** `ModelContext` and
+`sunrise_sunset` both took two bare `f64`s for
+geographic coordinates. Swapping them at a call
+site compiles cleanly and silently returns wrong
+times; the sign convention (positive N/E) was
+documented only in doc comments.
+**Resolution:** Introduced `GeoPoint { lat_deg,
+lon_deg }` in `dashboard::astro`. `ModelContext`
+stores a `location: GeoPoint`;
+`sunrise_sunset(date, location, tz)` takes it. The
+swap hazard is now a compile error rather than a
+silent wrong-time.
+
+### AQ-089 — `build_model` took `&ModelContext` despite the Copy contract
+**Category:** API design
+**Description:** `ModelContext` is explicitly
+`Copy` (documented as "call sites can pass by
+value"), but `build_model` took `&ModelContext`.
+Every call site had to write `&ctx`; every internal
+access threaded through an extra reference.
+**Resolution:** Changed the signature to
+`build_model(forecast: &Forecast, ctx: ModelContext)`.
+Call sites and internal `build_today` follow suit.
+Matches the documented intent and makes the struct's
+`Copy` derivation load-bearing instead of
+decorative.
+
+### AQ-090 — `TrmnlState` used `Mutex` for telemetry while `ImageStore` used `RwLock`
+**Category:** Code quality (consistency)
+**Description:** `TrmnlState.images` is an
+`Arc<ImageStore>` backed by `RwLock`. The new
+`telemetry` field introduced an
+`Arc<Mutex<DeviceTelemetry>>` — a different
+primitive for a similarly-shaped cache. Not
+functional, just a consistency wrinkle.
+**Resolution:** Changed to
+`Arc<RwLock<DeviceTelemetry>>`. Reads grab a
+`.read()` snapshot (cheap since `DeviceTelemetry`
+is `Copy`); writes take `.write()` and call
+`merge_from`.
+
 ## 2026-04-17 (feat — swap dashboard font to Atkinson Hyperlegible)
 
 ### AQ-084 — New font-family test duplicated existing coverage

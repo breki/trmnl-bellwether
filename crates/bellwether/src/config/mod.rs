@@ -142,6 +142,8 @@ pub const REQUIRED_WINDY_PARAMETERS: &[WindyParameter] = &[
     WindyParameter::Wind,
     WindyParameter::Clouds,
     WindyParameter::Precip,
+    WindyParameter::Rh,
+    WindyParameter::WindGust,
 ];
 
 /// Top-level configuration.
@@ -332,6 +334,8 @@ mod tests {
                 WindyParameter::Wind,
                 WindyParameter::Clouds,
                 WindyParameter::Precip,
+                WindyParameter::Rh,
+                WindyParameter::WindGust,
             ],
         );
         assert_eq!(cfg.windy.api_key(), Some("fake-windy-key-for-tests"));
@@ -607,7 +611,14 @@ mod tests {
         else {
             panic!("expected MissingRequiredWindyParameters, got {err:?}");
         };
-        assert_eq!(missing, vec![WindyParameter::Clouds]);
+        assert_eq!(
+            missing,
+            vec![
+                WindyParameter::Clouds,
+                WindyParameter::Rh,
+                WindyParameter::WindGust,
+            ],
+        );
     }
 
     #[test]

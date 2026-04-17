@@ -10,13 +10,20 @@ api_key_file = "windy_key.txt"
 lat = 46.05
 lon = 14.51
 model = "gfs"
-# Parameters the publish loop fetches. All four are
-# required for the v1 dashboard: `temp` drives the big
-# number + daily highs, `wind` becomes the "Wind N km/h
-# XX" label (Windy returns this as two u/v component
-# series), and `clouds` + `precip` feed the condition
-# classifier (sunny / partly cloudy / cloudy / rain).
-parameters = ["temp", "wind", "clouds", "precip"]
+# Parameters the publish loop fetches. All six are
+# required for the v1 dashboard:
+#   * `temp`      — big number + daily highs / lows.
+#   * `wind`      — "Wind N km/h XX" label (Windy
+#                   returns this as two u/v component
+#                   series).
+#   * `windGust`  — "Gust N km/h" label in the
+#                   meteorology strip.
+#   * `rh`        — humidity % display + feels-like
+#                   calculation.
+#   * `clouds` + `precip` — condition classifier
+#                   (sunny / partly cloudy / cloudy /
+#                   rain).
+parameters = ["temp", "wind", "clouds", "precip", "rh", "windGust"]
 
 [trmnl]
 mode = "byos"

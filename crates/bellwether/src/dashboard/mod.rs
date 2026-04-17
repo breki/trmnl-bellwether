@@ -19,7 +19,9 @@
 //! SVG → BMP transport; it doesn't know a sunny day
 //! from a rainy one.
 
+pub mod astro;
 pub mod classify;
+pub mod feels_like;
 pub mod icons;
 pub mod model;
 pub mod svg;
@@ -27,6 +29,6 @@ pub mod svg;
 pub use classify::{Compass8, Condition, classify_weather, wind_to_compass};
 pub use model::{
     CurrentConditions, DAY_TILE_COUNT, DashboardModel, DaySummary,
-    MIN_SAMPLES_PER_DAY, build_model,
+    MIN_SAMPLES_PER_DAY, ModelContext, TodaySummary, build_model,
 };
 pub use svg::build_svg;

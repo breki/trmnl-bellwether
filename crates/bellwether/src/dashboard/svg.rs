@@ -305,27 +305,35 @@ mod tests {
         DashboardModel {
             current: Some(CurrentConditions {
                 temp_c: 12.0,
+                feels_like_c: 10.0,
                 condition: Condition::Cloudy,
                 wind_kmh: 18.0,
                 wind_compass: Compass8::SW,
+                gust_kmh: Some(25.0),
+                humidity_pct: Some(65.0),
             }),
+            today: None,
             days: [
                 Some(DaySummary {
                     weekday: Weekday::Sat,
                     high_c: Some(14),
+                    low_c: Some(7),
                     condition: Condition::Sunny,
                 }),
                 Some(DaySummary {
                     weekday: Weekday::Sun,
                     high_c: Some(11),
+                    low_c: Some(5),
                     condition: Condition::Rain,
                 }),
                 Some(DaySummary {
                     weekday: Weekday::Mon,
                     high_c: Some(9),
+                    low_c: Some(3),
                     condition: Condition::Cloudy,
                 }),
             ],
+            battery_pct: Some(82),
         }
     }
 
@@ -397,6 +405,7 @@ mod tests {
         model.days[0] = Some(DaySummary {
             weekday: Weekday::Sat,
             high_c: None,
+            low_c: None,
             condition: Condition::Sunny,
         });
         let svg = build_svg(&model);

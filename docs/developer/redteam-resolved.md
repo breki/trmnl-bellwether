@@ -5,6 +5,81 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (PR 3c — v0.6.0 fetch/render/publish loop)
+
+### RT-049 — `tokio::time::interval(0)` panics the publish task
+**Category:** Correctness / DoS
+**Resolution:** `Config::validate` now rejects
+`default_refresh_rate_s` outside `1..=86400` with a
+new `ConfigError::InvalidRefreshRate` variant. Tests
+cover zero and above-max. The operator can't
+accidentally write `default_refresh_rate_s = 0` and
+silently lose the publish loop.
+
+### RT-050 — Detached `JoinHandle` hides future
+**Category:** Observability (defensive)
+**Resolution:** New `publish::supervise(name, future)`
+wraps the spawn with an outer task that logs at
+`error!` if the inner task ends (clean return or
+panic) and at `info!` on cancel. `main.rs` now uses
+`supervise("publish_loop", loop_.run())`. The comment
+explicitly says we do **not** auto-restart — a crash
+loop would burn through Windy API quota. If the task
+dies, the operator sees the error and restarts the
+process.
+
+### RT-051 — Wall-clock filenames collide on Pi without RTC
+**Category:** Correctness
+**Resolution:** Filenames are now
+`dash-{counter:08}.bmp` from an `AtomicU64` inside
+the `PublishLoop`. Monotonic regardless of clock
+state; ordering visible in the filename; no
+collisions. Test asserts the format
+(`dash-00000000.bmp`, `dash-00000001.bmp`, …) and
+URL-safety.
+
+### RT-052 — `FetchRequest` derived `Debug` leaked api_key
+**Category:** Security
+**Resolution:** Replaced `#[derive(Debug)]` with a
+manual `Debug` impl that emits `api_key:
+"<redacted>"`. Any future `tracing::debug!(?req, …)`
+is now safe.
+
+### RT-053 — `fetch_request.clone()` per tick
+**Category:** Performance (minor)
+**Resolution:** `Client::fetch` now takes
+`&FetchRequest`; the publish loop passes
+`&self.fetch_request`. Eliminates per-tick String
+cloning.
+
+### RT-054 — Missing-temp indistinguishable from 0 °C
+**Category:** UX / correctness
+**Resolution:** `build_dashboard_svg` now branches on
+`Some(temp)` vs `None`. With data: a filled bar.
+Without data: the outline plus a diagonal X overlay
+(two `<line>`s) so the operator can see "no data" at
+a glance. A `tracing::warn!` also fires on the None
+branch. Tests assert the X overlay is present when
+no temp, absent when present.
+
+### RT-055 — `build_dashboard_svg` bypassed config bounds
+**Category:** Robustness
+**Resolution:** Signature changed from
+`(forecast, width, height)` to
+`(forecast, &RenderConfig)`. The SVG builder now
+always uses validated dimensions from `RenderConfig`.
+
+### RT-056 — Supervisor + instant first tick → crash-loop quota burn
+**Category:** Operational (deferred)
+**Resolution:** `supervise` deliberately does NOT
+auto-restart. Doc comment explicitly explains why.
+If the process ever gets wrapped in a systemd
+restart loop, a future change may need a startup
+backoff — tracked as a TODO if/when supervision
+policy changes.
+
+---
+
 ## 2026-04-17 (PR 3b — v0.5.0 TRMNL BYOS endpoints)
 
 ### RT-036 / RT-045 — Split-lock race (torn state between `images` and `latest`)

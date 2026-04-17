@@ -47,6 +47,7 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use bellwether::publish::{ImageSink, SinkError};
 use serde::{Serialize, Serializer};
 
 /// Maximum request body size for `POST /api/log`.
@@ -204,6 +205,12 @@ impl RefreshInterval {
     pub fn as_secs(self) -> u32 {
         u32::try_from(self.0.as_secs()).unwrap_or(u32::MAX)
     }
+
+    /// The interval as a `Duration`.
+    #[must_use]
+    pub fn as_duration(self) -> Duration {
+        self.0
+    }
 }
 
 impl Serialize for RefreshInterval {
@@ -288,6 +295,17 @@ impl TrmnlState {
     #[must_use]
     pub fn default_refresh_interval(&self) -> RefreshInterval {
         self.default_refresh_interval
+    }
+}
+
+impl ImageSink for TrmnlState {
+    fn publish_image(
+        &self,
+        filename: String,
+        bytes: Vec<u8>,
+    ) -> Result<(), SinkError> {
+        self.put_image(filename, Bytes::from(bytes))
+            .map_err(|e| Box::new(e) as SinkError)
     }
 }
 

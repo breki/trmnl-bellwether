@@ -62,8 +62,10 @@ pub const ERROR_BODY_MESSAGE_CAP: usize = 512;
 /// Request parameters for a single forecast fetch.
 ///
 /// All fields are owned so schedulers can store a
-/// `FetchRequest` between ticks without lifetime juggling.
-#[derive(Debug, Clone)]
+/// `FetchRequest` between ticks without lifetime
+/// juggling. The `Debug` impl redacts the API key so
+/// the struct is safe to `tracing::debug!(?req, …)`.
+#[derive(Clone)]
 pub struct FetchRequest {
     /// Windy API key.
     pub api_key: String,
@@ -77,6 +79,18 @@ pub struct FetchRequest {
     /// [`Client::fetch`] returns [`WindyError::NoParameters`]
     /// if empty.
     pub parameters: Vec<WindyParameter>,
+}
+
+impl std::fmt::Debug for FetchRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FetchRequest")
+            .field("api_key", &"<redacted>")
+            .field("lat", &self.lat)
+            .field("lon", &self.lon)
+            .field("model", &self.model)
+            .field("parameters", &self.parameters)
+            .finish()
+    }
 }
 
 impl FetchRequest {
@@ -132,6 +146,18 @@ impl Forecast {
     pub fn values(&self, parameter: WindyParameter) -> Option<&[Option<f64>]> {
         let key = format!("{}-surface", parameter.wire_name());
         self.series.get(&key).map(Vec::as_slice)
+    }
+
+    /// Build a `Forecast` from a raw Windy JSON string.
+    /// Exposed for tests that want to construct a
+    /// `Forecast` without an HTTP round-trip — this runs
+    /// the same parsing + length-checking logic the
+    /// live client uses, so fixtures can't silently
+    /// drift out of the wire contract.
+    pub fn from_raw_json(json: &str) -> Result<Self, WindyError> {
+        let raw: RawResponse = serde_json::from_str(json)
+            .map_err(|e| WindyError::Parse(e.to_string()))?;
+        raw.into_forecast()
     }
 }
 
@@ -297,19 +323,22 @@ impl Client {
 
     /// Fetch a forecast using the lat/lon/model/params
     /// from a loaded [`WindyConfig`]. Convenience for
-    /// the common path; equivalent to
-    /// `self.fetch(FetchRequest::from_config(cfg)?)`.
+    /// the common path.
     pub async fn fetch_with_config(
         &self,
         cfg: &WindyConfig,
     ) -> Result<Forecast, WindyError> {
-        self.fetch(FetchRequest::from_config(cfg)?).await
+        let req = FetchRequest::from_config(cfg)?;
+        self.fetch(&req).await
     }
 
-    /// Fetch a forecast.
+    /// Fetch a forecast. Takes the request by reference
+    /// so callers (like the publish loop) can keep a
+    /// cached copy without cloning its `String`s per
+    /// tick.
     pub async fn fetch(
         &self,
-        req: FetchRequest,
+        req: &FetchRequest,
     ) -> Result<Forecast, WindyError> {
         if req.parameters.is_empty() {
             return Err(WindyError::NoParameters);

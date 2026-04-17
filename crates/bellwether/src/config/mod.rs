@@ -97,6 +97,15 @@ pub enum ConfigError {
         /// Requested height in pixels.
         height: u32,
     },
+    /// BYOS refresh rate outside the supported range.
+    /// Zero panics `tokio::time::interval`; anything
+    /// above a day makes no sense for an e-ink
+    /// dashboard.
+    #[error(
+        "invalid BYOS default_refresh_rate_s {0}: must \
+         be in 1..=86400"
+    )]
+    InvalidRefreshRate(u32),
 }
 
 /// Top-level configuration.
@@ -175,6 +184,13 @@ impl Config {
                 width: w,
                 height: h,
             });
+        }
+        if let TrmnlConfig::Byos(byos) = &self.trmnl
+            && !(1..=86400).contains(&byos.default_refresh_rate_s)
+        {
+            return Err(ConfigError::InvalidRefreshRate(
+                byos.default_refresh_rate_s,
+            ));
         }
         Ok(())
     }
@@ -477,6 +493,40 @@ mod tests {
                 height: 480,
             },
         ));
+    }
+
+    #[test]
+    fn rejects_zero_refresh_rate() {
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+            default_refresh_rate_s = 0
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidRefreshRate(0)));
+    }
+
+    #[test]
+    fn rejects_too_large_refresh_rate() {
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+            default_refresh_rate_s = 86401
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidRefreshRate(86401)));
     }
 
     #[test]

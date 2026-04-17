@@ -7,6 +7,42 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Fetch → render → publish loop (v0.6.0)
+
+    New `bellwether::publish` module ties the Windy
+    client, renderer, and BYOS image store into a
+    repeating `tokio::time::interval` task. First tick
+    fires immediately; subsequent ticks on the
+    configured cadence (shared with the device's
+    refresh rate). Per-tick errors log at `warn!` and
+    are swallowed so transient Windy / DNS / render
+    failures don't kill the loop — the server keeps
+    serving the last-good image.
+
+    Dashboard SVG for PR 3c is a placeholder (a bar
+    whose width tracks current temperature on a
+    0–40 °C scale, with an explicit diagonal X overlay
+    when temperature is missing so "no data" is
+    distinguishable from a real 0 °C reading). Real
+    layout + fonts defer to a later PR.
+
+    Filenames are `dash-{counter:08}.bmp` from an
+    `AtomicU64`, avoiding wall-clock collisions and
+    negative timestamps on RTC-less Pis. `FetchRequest`
+    picked up a manual `Debug` redacting the api_key
+    so the key can't leak via a future
+    `tracing::debug!(?req, …)`. `Client::fetch` now
+    takes `&FetchRequest` so the publish loop doesn't
+    clone per tick. `Config::validate` rejects
+    `default_refresh_rate_s` outside `1..=86400`
+    (zero would have panicked `tokio::time::interval`).
+    `publish::supervise` wraps `tokio::spawn` with a
+    log-on-exit tripwire — clean return or panic both
+    land in the error log rather than vanishing; no
+    auto-restart (avoids crash-loop Windy quota burn).
+    16 review findings (8 red-team + 8 artisan), 15
+    addressed in-PR.
+
 - TRMNL BYOS endpoints on `bellwether-web` (v0.5.0)
 
     New `api::trmnl` module exposes `GET /api/display`

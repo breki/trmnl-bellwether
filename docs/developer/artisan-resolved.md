@@ -6,6 +6,72 @@ findings.
 
 ---
 
+## 2026-04-17 (PR 3c — v0.6.0 fetch/render/publish loop)
+
+### AQ-062 — `tick` private forces real-time test
+**Category:** Test hygiene / API
+**Resolution:** Renamed `tick` to `tick_once` and
+made it `pub`. Tests now drive the loop
+deterministically (no `tokio::time::sleep` timing
+dependencies for most assertions). Doc calls out the
+future `/api/refresh` use case.
+
+### AQ-063 — `PublishError::Sink(String)` threw away structure
+**Category:** Error design
+**Resolution:** `ImageSink::publish_image` returns
+`Result<(), SinkError>` where
+`SinkError = Box<dyn std::error::Error + Send + Sync>`.
+`PublishError::Sink` wraps the same via `#[source]`,
+so callers get the full error chain via
+`std::error::Error::source`.
+
+### AQ-064 — Doc comment referenced "PR 3c"
+**Category:** Doc rot
+**Resolution:** Rewritten to say "temporary
+placeholder until a real layout lands — tracked in
+TODO.md". Ages well.
+
+### AQ-065 — `ImageSink` trait placement
+**Category:** Abstraction
+**Resolution:** Left in `publish` for now. Module
+doc explains: "Once a second producer shows up
+(e.g., an on-demand /api/refresh handler or a CLI
+'render once to disk' command), promote it to its
+own crate::sink module." Pre-empts the future
+refactor surprise.
+
+### AQ-066 — `Startup.config` carried whole Config
+**Category:** Coupling
+**Resolution:** Replaced with
+`Startup.windy: Option<WindyConfig>` — the exact
+slice `spawn_publish_loop` needs. Explicit in
+`main.rs`'s intermediate `let Config { windy, .. } =
+cfg` destructuring.
+
+### AQ-067 — same as RT-053
+
+### AQ-068 — Test name / assertion mismatch
+**Category:** Test hygiene
+**Resolution:** Replaced the old real-time
+`run_publishes_on_interval_and_swallows_errors` test
+with a deterministic
+`run_recovers_after_transient_sink_error` that
+scripts the MockSink to return Err on call #1, Ok
+afterward. Asserts at least 2 calls happen — proves
+the loop genuinely swallows errors rather than just
+inferring from "didn't panic".
+
+### AQ-069 — `ForecastFixture` duplicated parse logic
+**Category:** Test hygiene
+**Resolution:** Added `Forecast::from_raw_json(json:
+&str) -> Result<Forecast, WindyError>` in the Windy
+module. Tests now build `Forecast` instances via the
+same parser the live client uses, so fixtures stay
+in sync with the wire format automatically.
+`ForecastFixture` helper deleted.
+
+---
+
 ## 2026-04-17 (PR 3b — v0.5.0 TRMNL BYOS endpoints)
 
 ### AQ-046 — Same as RT-036 (composite RwLock)

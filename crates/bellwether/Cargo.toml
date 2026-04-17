@@ -1,6 +1,6 @@
 [package]
 name = "bellwether"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "TRMNL e-ink dashboard server core library"
 license = "MIT"
@@ -42,8 +42,9 @@ resvg = { version = "0.45", default-features = false, features = ["text"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 toml = "0.8"
+tracing = "0.1"
 
 [dev-dependencies]
 assert_cmd = "2"

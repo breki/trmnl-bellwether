@@ -10,6 +10,55 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-17
+
+### Added
+
+- `bellwether::publish::PublishLoop<S: ImageSink>` —
+  fetch (Windy) → render (dashboard SVG → 1-bit BMP)
+  → publish (sink) loop. First tick fires immediately;
+  subsequent ticks on a `tokio::time::interval` with
+  `MissedTickBehavior::Delay`. Per-tick errors logged
+  at `warn!` and swallowed so transient failures don't
+  kill the process.
+- `publish::ImageSink` trait with opaque
+  `SinkError = Box<dyn Error + Send + Sync>` return
+  type. `TrmnlState` implements it in the web crate.
+- `publish::supervise(name, future)` — tokio spawn
+  wrapper that logs at `error!` if the task ever ends
+  unexpectedly. No auto-restart (avoids Windy quota
+  exhaustion via crash loop).
+- `Forecast::from_raw_json` — build a `Forecast` from
+  a raw Windy JSON string without an HTTP round-trip.
+  Used by the publish tests so fixtures stay in sync
+  with the wire parser.
+- `ConfigError::InvalidRefreshRate` — rejects
+  `default_refresh_rate_s` outside `1..=86400` at
+  config load (zero would have panicked the tokio
+  interval).
+- `RefreshInterval::as_duration()` to convert to
+  `tokio::time::Duration`.
+
+### Changed
+
+- `clients::windy::Client::fetch` now takes
+  `&FetchRequest` instead of owned — removes the
+  per-tick clone in the publish loop.
+- `FetchRequest` has a manual `Debug` impl that
+  redacts `api_key` as `"<redacted>"`.
+- `bellwether-web` spawns the publish loop when
+  `--config` is given (under `supervise`); `--dev`
+  skips the loop.
+
+### Security
+
+- `FetchRequest` no longer leaks the Windy API key
+  via derived `Debug`.
+- Publish loop filenames use a monotonic counter
+  (`dash-{counter:08}.bmp`) instead of wall-clock
+  timestamps, so RTC-less Pis at boot don't produce
+  colliding or negative filenames.
+
 ## [0.5.0] - 2026-04-17
 
 ### Added

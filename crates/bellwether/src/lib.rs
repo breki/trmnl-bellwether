@@ -1,5 +1,6 @@
 pub mod clients;
 pub mod config;
+pub mod publish;
 pub mod render;
 
 /// Returns the version string from Cargo.toml.

@@ -43,7 +43,7 @@ async fn fetch_parses_timestamps_units_and_series() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let forecast = client.fetch(ok_request()).await.unwrap();
+    let forecast = client.fetch(&ok_request()).await.unwrap();
 
     assert_eq!(forecast.timestamps.len(), 2);
     assert_eq!(
@@ -83,7 +83,7 @@ async fn fetch_sends_expected_request_body() {
 
     let client = Client::with_base_url(server.uri());
     client
-        .fetch(FetchRequest {
+        .fetch(&FetchRequest {
             api_key: "secret-key".into(),
             lat: 46.05,
             lon: 14.51,
@@ -109,7 +109,7 @@ async fn fetch_surfaces_api_error_with_redacted_body() {
 
     let client = Client::with_base_url(server.uri());
     let err = client
-        .fetch(FetchRequest {
+        .fetch(&FetchRequest {
             api_key: "leak-bait-key-xxxxx".into(),
             lat: 0.0,
             lon: 0.0,
@@ -136,7 +136,7 @@ async fn fetch_reports_parse_error_on_malformed_json() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     assert!(matches!(err, WindyError::Parse(_)));
 }
 
@@ -155,7 +155,7 @@ async fn fetch_propagates_warning_field() {
 
     let client = Client::with_base_url(server.uri());
     let forecast = client
-        .fetch(FetchRequest {
+        .fetch(&FetchRequest {
             api_key: "k".into(),
             lat: 0.0,
             lon: 0.0,
@@ -181,7 +181,7 @@ async fn fetch_preserves_null_values_in_series() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let forecast = client.fetch(ok_request()).await.unwrap();
+    let forecast = client.fetch(&ok_request()).await.unwrap();
     assert_eq!(
         forecast.values(WindyParameter::Temp).unwrap(),
         &[Some(293.15), None, Some(294.25)],
@@ -201,7 +201,7 @@ async fn fetch_rejects_empty_ts() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     assert!(matches!(err, WindyError::EmptyForecast));
 }
 
@@ -218,7 +218,7 @@ async fn fetch_rejects_series_length_mismatch() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     let WindyError::SeriesLengthMismatch { key, expected, got } = err else {
         panic!("expected SeriesLengthMismatch, got {err:?}")
     };
@@ -246,7 +246,7 @@ async fn fetch_ignores_unknown_non_numeric_fields() {
         .await;
 
     let client = Client::with_base_url(server.uri()).clone();
-    let forecast = client.fetch(ok_request()).await.unwrap();
+    let forecast = client.fetch(&ok_request()).await.unwrap();
     assert_eq!(forecast.series.len(), 1);
     assert!(forecast.series.contains_key("temp-surface"));
 }
@@ -257,7 +257,7 @@ async fn fetch_rejects_empty_parameters_early() {
     // call.
     let client = Client::new();
     let err = client
-        .fetch(FetchRequest {
+        .fetch(&FetchRequest {
             api_key: "k".into(),
             lat: 0.0,
             lon: 0.0,
@@ -284,7 +284,7 @@ async fn fetch_rejects_oversized_response_via_content_length() {
 
     let client =
         Client::with_base_url(server.uri()).with_max_response_bytes(100);
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     assert!(matches!(err, WindyError::ResponseTooLarge { limit: 100 },));
 }
 
@@ -301,7 +301,7 @@ async fn fetch_rejects_oversized_error_body() {
 
     let client =
         Client::with_base_url(server.uri()).with_max_error_body_bytes(100);
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     assert!(matches!(err, WindyError::ResponseTooLarge { limit: 100 },));
 }
 
@@ -322,7 +322,7 @@ async fn fetch_does_not_follow_redirects() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     let WindyError::Api { status, .. } = err else {
         panic!("expected Api, got {err:?}")
     };
@@ -415,7 +415,7 @@ async fn fetch_surfaces_invalid_timestamp() {
         .await;
 
     let client = Client::with_base_url(server.uri());
-    let err = client.fetch(ok_request()).await.unwrap_err();
+    let err = client.fetch(&ok_request()).await.unwrap_err();
     let WindyError::InvalidTimestamp { ms } = err else {
         panic!("expected InvalidTimestamp, got {err:?}")
     };
@@ -477,7 +477,7 @@ async fn live_windy() {
         .expect("BELLWETHER_WINDY_KEY env var");
     let client = Client::new();
     let forecast = client
-        .fetch(FetchRequest {
+        .fetch(&FetchRequest {
             api_key: key,
             lat: 46.05,
             lon: 14.51,

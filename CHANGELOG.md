@@ -10,6 +10,39 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-17
+
+### Added
+
+- `bellwether::render::Renderer` — server-side SVG →
+  1-bit monochrome BMP pipeline for TRMNL OG.
+  `resvg`/`tiny-skia` rasterize, grayscale conversion
+  composites transparent regions over white with
+  Rec. 601 luma coefficients, Floyd–Steinberg dithers
+  to 1-bit, and a hand-rolled encoder emits the
+  canonical (`"standart"`) palette layout the TRMNL
+  firmware accepts.
+- `Renderer::load_font_data(Vec<u8>)` — load TTF/OTF
+  fonts from baked-in bytes.
+- New `RenderError` variants: `ParseSvg`,
+  `RasterFailed`, `InvalidScale`,
+  `UnsupportedBitDepth`.
+- `ConfigError::InvalidRenderDimensions` — render
+  dimensions outside `1..=4096` rejected at
+  `Config::load` / `Config::from_toml_str`.
+
+### Security
+
+- Render pipeline rejects SVGs that would require a
+  scale factor above 8192 or non-finite, foreclosing
+  a DoS vector via crafted tiny viewports.
+- Render dimensions bounded at 4096 per axis.
+- Regression test verifies `<image href="file://...">`
+  remains silently ignored.
+- `Renderer::load_font_data` documents the font-trust
+  boundary; callers warned against unsandboxed
+  user-uploaded font blobs.
+
 ## [0.3.0] - 2026-04-17
 
 ### Added

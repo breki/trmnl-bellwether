@@ -7,6 +7,37 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- Render pipeline: SVG → 1-bit BMP (v0.4.0)
+
+    `render::Renderer` parses SVG via `resvg`/`usvg`
+    (text feature only; no system fonts, no
+    raster-image embeds), rasterizes to `tiny-skia`
+    RGBA, converts to grayscale via fixed-point
+    Rec. 601 (transparent regions composited over
+    white), Floyd–Steinberg dithers to 1-bit, and
+    emits a monochrome BMP with the TRMNL OG
+    firmware's canonical palette (`palette[0] =
+    black, palette[1] = white; bit 1 = white`).
+    Verified against `usetrmnl/firmware`
+    `lib/trmnl/src/bmp.cpp` — matches ImageMagick /
+    Pillow defaults and the firmware's `"standart"`
+    path. Module split into `bmp.rs`, `dither.rs`,
+    `mod.rs`, `tests.rs` (directory layout mirrors
+    `config/` and `clients/windy/`).
+
+    Render pipeline rejects pathological inputs: SVG
+    viewports that would require scales above 8192 or
+    non-finite, render dimensions outside 1..=4096 at
+    `Config::load`/`from_toml_str`. Regression test
+    locks in that `<image href="file://...">` is
+    silently ignored. 12 red-team + 15 artisan
+    findings from review; all applicable ones
+    addressed in-PR. RT-024 (palette inversion
+    concern) specifically verified against firmware
+    source and left as-is. Open in the review logs:
+    nothing; Cluster D items documented inline and in
+    TODO.md.
+
 - Windy Point Forecast client (v0.3.0)
 
     `clients::windy::{Client, FetchRequest, Forecast,

@@ -6,6 +6,72 @@ findings.
 
 ---
 
+## 2026-04-17 (PR 3a — v0.4.0 render module)
+
+### AQ-031 — `ParseSvg(String)` loses structured usvg error info
+**Category:** Error design
+**Resolution:** Documented the trade-off explicitly in
+the `RenderError::ParseSvg` variant doc: "flattened
+`usvg::Error` message for human consumption. Matching
+on parse subcategories is not supported; if that
+becomes necessary, expose the typed error via
+`#[source]`." Future-upgrade path preserved.
+
+### AQ-032 — `UnsupportedBitDepth { bits: u8 }` erased enum context
+**Category:** Type safety
+**Resolution:** Changed to `UnsupportedBitDepth { depth:
+BitDepth }`. Error message uses `{depth:?}`; if
+`BitDepth` grows a third variant, the error message
+is automatically up to date. Test updated to assert
+`depth == BitDepth::Four`.
+
+### AQ-034 — `load_font_data(Vec<u8>)` rationale not documented
+**Resolution:** Added explicit doc explaining that
+`fontdb` stores the bytes for the database's lifetime
+without copying; `&[u8]` would force an internal
+clone. Also added the "Trust boundary" paragraph
+covered under RT-032.
+
+### AQ-035 — Same as RT-033 (Clone coherence)
+**Resolution:** See RT-033. Docs now state Renderer is
+not `Clone` and why.
+
+### AQ-036 — `Debug` field `fonts` read like a collection
+**Resolution:** Renamed to `font_count`. Test updated
+to match.
+
+### AQ-038 — `255` literal repeated in `rgba_to_luma`
+**Resolution:** Extracted `WHITE_BG: u32 = 255`
+constant; alpha compositing now goes through a small
+`composite(channel, alpha, inv_alpha)` helper so
+`WHITE_BG` is named exactly once per channel write.
+
+### AQ-039 — Same as RT-026
+**Resolution:** See RT-026.
+
+### AQ-042 — Same as RT-035
+**Resolution:** See RT-035.
+
+## Noted — not acted on
+
+### AQ-033 — `render_to_bmp(&RenderConfig)` signature
+**Resolution:** Confirmed as-is; matches project
+convention.
+
+### AQ-037 — Triple-param `(bits, width, height)` refactor
+**Resolution:** Deferred. Introduce an `Image` /
+`Gray8` / `Bits1` struct when a third pipeline stage
+(e.g., 4-bit grayscale for TRMNL X) lands. Two
+consumers don't yet justify the abstraction.
+
+### AQ-041 — Builder pattern for Renderer
+**Resolution:** Deferred. Current shape (`new()` +
+`load_font_data`) is close enough to a builder that
+migration will be cheap when a second post-construct
+knob arrives.
+
+---
+
 ## 2026-04-17 (PR 2 — v0.3.0 Windy client)
 
 ### AQ-016 — `WindyError` over-differentiated `reqwest::Error`

@@ -22,6 +22,13 @@
   behind a `bellwether run` subcommand with a
   configurable refresh interval.
 
+## Chores
+
+- **`cargo audit` + `cargo deny` in CI.** Add a
+  security-advisory gate to `xtask validate` or a
+  dedicated CI job so new RUSTSEC advisories fail the
+  build. Flagged during PR 3a (RT-034).
+
 ## Backlog
 
 - **Home Assistant integration** (deferred from PR 1).

@@ -82,6 +82,21 @@ pub enum ConfigError {
     /// Longitude was out of `[-180, 180]` or not finite.
     #[error("invalid longitude {0}: must be finite and in [-180, 180]")]
     InvalidLongitude(f64),
+    /// Render dimension outside the supported range.
+    /// Bounds are deliberately loose (4096 px per axis)
+    /// so future devices can raise them without a
+    /// `SemVer` break; today's TRMNL X tops out at
+    /// 1872 px.
+    #[error(
+        "invalid render dimensions {width}x{height}: each \
+         must be in 1..=4096"
+    )]
+    InvalidRenderDimensions {
+        /// Requested width in pixels.
+        width: u32,
+        /// Requested height in pixels.
+        height: u32,
+    },
 }
 
 /// Top-level configuration.
@@ -153,6 +168,13 @@ impl Config {
         let lon = self.windy.lon;
         if !lon.is_finite() || !(-180.0..=180.0).contains(&lon) {
             return Err(ConfigError::InvalidLongitude(lon));
+        }
+        let (w, h) = (self.render.width, self.render.height);
+        if !(1..=4096).contains(&w) || !(1..=4096).contains(&h) {
+            return Err(ConfigError::InvalidRenderDimensions {
+                width: w,
+                height: h,
+            });
         }
         Ok(())
     }
@@ -403,6 +425,58 @@ mod tests {
         "#;
         let err = Config::from_toml_str(text).unwrap_err();
         assert!(matches!(err, ConfigError::InvalidLatitude(_)));
+    }
+
+    #[test]
+    fn rejects_out_of_range_render_dimensions() {
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+
+            [render]
+            width = 65535
+            height = 65535
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidRenderDimensions {
+                width: 65535,
+                height: 65535,
+            },
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_render_dimension() {
+        let text = r#"
+            [windy]
+            api_key_file = "k.txt"
+            lat = 0
+            lon = 0
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+
+            [render]
+            width = 0
+            height = 480
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidRenderDimensions {
+                width: 0,
+                height: 480,
+            },
+        ));
     }
 
     #[test]

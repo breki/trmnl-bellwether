@@ -1,6 +1,6 @@
 [package]
 name = "bellwether"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "TRMNL e-ink dashboard server core library"
 license = "MIT"
@@ -30,6 +30,15 @@ clap = { version = "4", features = ["derive"] }
 # format is strictly TOML. `gzip` halves typical Windy
 # response sizes over cellular.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+# resvg pulls tiny-skia (raster ops), usvg (SVG parser),
+# and fontdb (font DB for text rendering). We enable
+# `text` so SVGs can contain `<text>` elements. We skip
+# `system-fonts` / `memmap-fonts` on purpose — layouts
+# bake their fonts in via `Renderer::load_font_data` for
+# reproducible output and to avoid dragging fontconfig
+# onto the Pi. `raster-images` (PNG/JPEG/WebP embedded in
+# SVG) is also off; our dashboards are pure vector.
+resvg = { version = "0.45", default-features = false, features = ["text"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

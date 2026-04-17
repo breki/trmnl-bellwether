@@ -5,6 +5,118 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (PR 3a — v0.4.0 render module)
+
+### RT-024 — Palette convention may be inverted (VERIFIED CORRECT)
+**Category:** Correctness (blocker concern)
+**Description:** Reviewer flagged that `palette[0] =
+black, palette[1] = white` with `bit 1 = white` might
+be inverted from TRMNL firmware expectations,
+producing a photo-negative display.
+**Resolution:** Investigated `usetrmnl/firmware`
+`lib/trmnl/src/bmp.cpp`. Firmware supports **both**
+orderings via a `reversed` flag; our current layout
+matches its `"standart"` (canonical) path and also
+matches `ImageMagick -monochrome` / Pillow
+`convert('1')` default output and the official
+TRMNL HA add-on converter. No code change needed;
+added a doc comment in `bmp.rs`
+`encode_1bit_bmp` + module-level note in `render/mod.rs`
+pointing at the firmware reference.
+
+### RT-025 — Dead-looking branch in `write_row` for widths % 8 == 0
+**Resolution:** Added an inline comment explaining the
+branch only fires when `width % 8 != 0`, so readers
+don't mistake it for a bug.
+
+### RT-026 — `.min(255)` in `rgba_to_luma` unreachable
+**Category:** Correctness (defensive-code cleanup)
+**Resolution:** Dropped the `.min(255)` clamp; the
+Rec. 601 coefficients (77 + 150 + 29 = 256) paired
+with 0..=255 inputs keep `y` strictly in `0..=255`.
+Added `#[allow(clippy::cast_possible_truncation)]` on
+the `as u8` cast and a comment explaining the bound.
+See also AQ-039.
+
+### RT-027 — Tiny-SVG scale-factor DoS
+**Category:** Security (DoS)
+**Description:** SVG with `width="0.0001"` produced
+`scale_x ≈ 8_000_000`, causing the rasterizer to
+burn CPU on degenerate geometry.
+**Resolution:** New `RenderError::InvalidScale
+{ scale_x, scale_y }`; renderer rejects scales
+outside `(0, MAX_SCALE]` with `MAX_SCALE = 8192.0`.
+Test `rejects_svg_that_would_require_excessive_scale`
+exercises the path with a 0.001 × 0.001 viewport.
+
+### RT-028 — Non-finite scale from crafted SVG
+**Resolution:** Same `InvalidScale` check handles
+`is_finite()` defensively alongside the range check.
+
+### RT-029 — Unbounded `RenderConfig.width` / `height`
+**Category:** Security (DoS / OOM)
+**Description:** `[render]` with
+`width = 65535, height = 65535` would request a 17 GB
+RGBA pixmap on 64-bit systems, or overflow `width *
+height` on 32-bit RPi targets.
+**Resolution:** New
+`ConfigError::InvalidRenderDimensions { width, height }`
+variant. `Config::validate` now rejects dimensions
+outside `1..=4096` (TRMNL X tops out at 1872; 4096
+leaves headroom for future devices without another
+SemVer-breaking bound change). Tests
+`rejects_out_of_range_render_dimensions` and
+`rejects_zero_render_dimension` added to
+`config/mod.rs`.
+
+### RT-030 — Regression test for safe-by-default usvg resolver
+**Resolution:** New test
+`ignores_external_file_references_in_svg` feeds an
+SVG with `<image href="file:///etc/passwd">` and
+asserts the output remains all-white. Locks in the
+defense-in-depth today and fails loudly if a future
+feature flip enables a filesystem-aware resolver.
+
+### RT-033 — `Renderer` not `Clone` despite doc claim
+**Category:** API coherence
+**Resolution:** Updated the `Renderer` doc to state
+explicitly that it is **not** `Clone` (usvg's
+`FontResolver` trait object isn't `Clone`; losing
+loaded fonts on an implicit copy would be a footgun).
+`Arc::make_mut` kept because it's the right primitive
+if anyone later wraps the Renderer in an Arc graph.
+See also AQ-035.
+
+### RT-035 — `i32::try_from(width).unwrap()` panics without message
+**Category:** Correctness (diagnostics)
+**Resolution:** Added an explicit top-of-function
+assertion in `encode_1bit_bmp`:
+`assert!(i32::try_from(width).is_ok() &&
+i32::try_from(height).is_ok(), "dimensions exceed BMP
+i32 field capacity")`. Unreachable in practice given
+the new RenderConfig bound (4096), but surfaces a
+clear message if ever hit.
+
+## Noted — not acted on
+
+### RT-031 — XML-bomb via deeply nested SVG
+**Resolution:** Not a render-module concern. Added
+module-level doc ("Caller responsibilities") saying
+web consumers should cap `svg_text.len()` (~1 MiB).
+Caller (PR 3b, web crate) will enforce.
+
+### RT-032 — Adversarial fonts DoS
+**Resolution:** Added a trust-boundary paragraph to
+`load_font_data`'s doc comment. Font parsing is safe
+Rust but crafted fonts can panic / spin; doc says
+not to pass user-uploaded blobs unsandboxed.
+
+### RT-034 — `cargo audit` / `cargo deny` in CI
+**Resolution:** Logged to `TODO.md` as a follow-up
+chore; not in scope for this PR.
+
+---
+
 ## 2026-04-17 (PR 2 — v0.3.0 Windy client)
 
 ### RT-009 — `#[serde(flatten)]` into `HashMap<String, Vec<f64>>` brittle to new fields

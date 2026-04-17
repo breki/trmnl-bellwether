@@ -19,7 +19,7 @@ function getAppVersion() {
 // Read backend port from ../.ports if it exists
 function getBackendPort() {
   const portsFile = resolve(rootDir, ".ports");
-  if (!existsSync(portsFile)) return 3000;
+  if (!existsSync(portsFile)) return 3100;
 
   const content = readFileSync(portsFile, "utf-8");
   for (const line of content.split("\n")) {
@@ -28,7 +28,7 @@ function getBackendPort() {
     const match = trimmed.match(/^backend_port\s*=\s*(\d+)/);
     if (match) return parseInt(match[1], 10);
   }
-  return 3000;
+  return 3100;
 }
 
 const backendPort = getBackendPort();

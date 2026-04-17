@@ -36,7 +36,7 @@ struct Cli {
     dev: bool,
 
     /// Port to listen on
-    #[arg(short, long, default_value = "3000")]
+    #[arg(short, long, default_value = "3100")]
     port: u16,
 
     /// Bind address
@@ -153,7 +153,7 @@ fn resolve_serving_config(
             );
             Ok((
                 None,
-                "http://localhost:3000/images".to_owned(),
+                "http://localhost:3100/images".to_owned(),
                 RefreshInterval::from_secs(900),
                 RenderConfig::default(),
             ))

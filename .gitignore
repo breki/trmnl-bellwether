@@ -33,6 +33,11 @@ coverage.json
 # Port config (local override)
 .ports
 
+# Local bellwether config and secrets (never commit)
+/config.toml
+windy_key.txt
+ha_token.txt
+
 # Playwright
 /test-results/
 /playwright-report/

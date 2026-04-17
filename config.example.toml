@@ -1,0 +1,38 @@
+# Example bellwether config. Copy to `config.toml` and
+# customize. `config.toml` and `windy_key.txt` are
+# gitignored.
+#
+# Run with:  cargo run -p bellwether-web -- --config config.toml
+
+[windy]
+api_key_file = "windy_key.txt"
+# Ljubljana: change to your point of interest.
+lat = 46.05
+lon = 14.51
+model = "gfs"
+# Parameters the publish loop fetches. The current
+# placeholder dashboard only uses `temp`; the rest are
+# here so responses cache what future layouts will
+# want.
+parameters = ["temp", "wind", "precip"]
+
+[trmnl]
+mode = "byos"
+# URL the TRMNL device uses to fetch rendered BMPs.
+# Localhost works for local poking; change to the
+# LAN-visible hostname of the machine running the
+# server before pointing a real device at it.
+public_image_base = "http://localhost:3100/images"
+# 900 s = 15 min. Fine for a TRMNL dashboard, and
+# comfortably inside the Windy Personal plan budget
+# (hundreds of calls/day). Drop to 60 s for local
+# iteration if you're watching the loop run, but
+# don't commit that — it wastes quota on a battery-
+# conscious device.
+default_refresh_rate_s = 900
+
+[render]
+width = 800
+height = 480
+bit_depth = 1
+timezone = "Europe/Ljubljana"

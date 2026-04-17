@@ -51,7 +51,7 @@ function Invoke-BuildOnly {
 
 function Get-BackendPort {
     $portsFile = Join-Path $PSScriptRoot ".ports"
-    if (-not (Test-Path $portsFile)) { return 3000 }
+    if (-not (Test-Path $portsFile)) { return 3100 }
     foreach ($line in Get-Content $portsFile) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
@@ -59,7 +59,7 @@ function Get-BackendPort {
             return [int]$Matches[1]
         }
     }
-    return 3000
+    return 3100
 }
 
 function Invoke-Dev {

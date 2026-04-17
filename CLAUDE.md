@@ -20,9 +20,10 @@ name `malina`).
 
 **New here?** Read
 [`docs/developer/HANDOFF.md`](docs/developer/HANDOFF.md)
-first — it contains open questions, recommended first
-steps, and user preferences that are not derivable from
-the code.
+first — it contains the current build state, open
+decisions that block future PRs, recommended next PRs,
+and user preferences that are not derivable from the
+code.
 
 - **Stack**: Rust/Axum backend, Svelte 5/Vite frontend
   (control panel), static e-ink image renderer
@@ -66,10 +67,10 @@ cd frontend && npm run build  # production build to dist/
 ```
 
 In dev mode, Vite proxies `/api` requests to the Axum
-backend on port 3000. Run backend and frontend in
+backend on port 3100. Run backend and frontend in
 parallel:
 
-1. `cargo run -p bellwether-web` (backend on :3000)
+1. `cargo run -p bellwether-web` (backend on :3100)
 2. `cd frontend && npm run dev` (frontend on :5173)
 3. Open http://localhost:5173
 

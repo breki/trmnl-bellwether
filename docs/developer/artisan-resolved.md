@@ -6,6 +6,57 @@ findings.
 
 ---
 
+## 2026-04-17 (chore — port 3100 + config.example + HANDOFF rewrite)
+
+### AQ-070 — HANDOFF.md duplicated CLAUDE.md content
+**Category:** Docs size / drift risk
+**Description:** Rewrite grew HANDOFF to 206 lines
+with a "User working style" section restating rules
+from CLAUDE.md and a "Memory (local only)" section
+restating what's in the memory store itself.
+**Resolution:** User-style section trimmed to 2
+guardrails that aren't in CLAUDE.md yet (the `/tmp`
+rule, the six-field finding format). Memory section
+shortened to one sentence. HANDOFF now 174 lines.
+
+### AQ-071 — Same as RT-057 (example quota mismatch)
+**Resolution:** See RT-057.
+
+### AQ-072 — Em-dash in `config.example.toml`
+**Category:** Encoding consistency
+**Description:** The example file was the only
+TOML/tooling-facing file in the repo with non-ASCII
+(`—`). Windows PowerShell with the default code page
+can mojibake UTF-8 TOML piped through unaware tools.
+**Resolution:** Replaced em-dash with `:`. All
+tooling-facing config files now ASCII-only.
+
+### AQ-073 — HANDOFF "Memory" section baked in machine-specific path
+**Category:** Docs accuracy
+**Description:** Referenced
+`~/.claude/projects/D--src-trmnl-bellwether/memory/`
+— the `D--src-...` slug is specific to this user's
+Windows checkout. A fresh agent on Linux at
+`~/code/bellwether` has a different slug.
+**Resolution:** Section rewritten to a single
+sentence that doesn't quote a path and just says
+"local memory may add context on the operator's
+machine; everywhere else this file + CLAUDE.md are
+the whole picture."
+
+### AQ-074 — README log-line recipe brittle under JSON formatter
+**Category:** Docs accuracy
+**Description:** README quoted `published image
+filename="dash-NNNNNNNN.bmp"` as the log grep target.
+With a JSON `tracing_subscriber` layer (common on
+systemd deploys), the line becomes structured JSON
+and the literal quote won't match.
+**Resolution:** Softened to "watch for a `published
+image` entry in the log" — matches both text and JSON
+layers via substring.
+
+---
+
 ## 2026-04-17 (PR 3c — v0.6.0 fetch/render/publish loop)
 
 ### AQ-062 — `tick` private forces real-time test

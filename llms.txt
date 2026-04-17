@@ -36,7 +36,7 @@ and exposes a JSON API:
 bellwether-web [OPTIONS]
 
 Options:
-  -p, --port <PORT>          Port [default: 3000]
+  -p, --port <PORT>          Port [default: 3100]
   -b, --bind <ADDR>          Bind address [default: 127.0.0.1]
   -f, --frontend <PATH>      Frontend dist dir [default: frontend/dist]
 ```

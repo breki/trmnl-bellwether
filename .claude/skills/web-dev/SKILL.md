@@ -119,7 +119,7 @@ Use variables from `app.css`:
 ### Port Configuration
 
 `vite.config.js` reads `.ports` file for backend
-port. Default is 3000. The `.ports` file uses
+port. Default is 3100. The `.ports` file uses
 `backend_port=NNNN` format.
 
 ### Version Injection

@@ -44,12 +44,49 @@ cd frontend && npm install    # first time
 ```
 
 Open http://localhost:5173. Vite proxies `/api` and
-`/health` to the Axum backend on port 3000.
+`/health` to the Axum backend on port 3100.
 
 E2E tests:
 
 ```bash
 npx playwright test           # auto-starts servers
+```
+
+## Running the server
+
+Copy the example config and fill in your Windy API
+key:
+
+```bash
+cp config.example.toml config.toml
+# edit config.toml: set lat / lon / timezone
+printf '%s' "your-windy-api-key" > windy_key.txt
+```
+
+Both `config.toml` and `windy_key.txt` are gitignored.
+
+Start the server:
+
+```bash
+cargo run -p bellwether-web -- --config config.toml
+```
+
+The publish loop fires immediately, then every
+`default_refresh_rate_s`. Watch for a `published
+image` entry in the log, then:
+
+```bash
+curl http://localhost:3100/api/display | jq
+curl http://localhost:3100/images/dash-00000000.bmp > current.bmp
+```
+
+For a quick look at the pipeline without a Windy key,
+use `--dev` (serves only the built-in placeholder, no
+fetch loop):
+
+```bash
+cargo run -p bellwether-web -- --dev
+curl http://localhost:3100/images/placeholder.bmp > placeholder.bmp
 ```
 
 ## Prerequisites

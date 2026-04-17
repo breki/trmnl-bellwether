@@ -10,6 +10,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `config.example.toml` — commitable template. Copy
+  to `config.toml` (gitignored), fill in Windy key in
+  `windy_key.txt` (also gitignored).
+- `README.md` grew a "Running the server" section
+  covering the config → key → run flow and the
+  `--dev` placeholder-only path.
+- `docs/developer/HANDOFF.md` rewritten for the
+  post-scaffold (v0.6.0) state.
+
+### Changed
+
+- Default backend port: **3000 → 3100**. Affects CLI
+  default on `bellwether-web`, `--dev` mode's
+  `public_image_base`, `.ports.sample`, `build.ps1`,
+  `vite.config.js`, and `playwright.config.ts`.
+  Operators running on a custom port via `.ports`
+  are unaffected.
+
 ## [0.6.0] - 2026-04-17
 
 ### Added

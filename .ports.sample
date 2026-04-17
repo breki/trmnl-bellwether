@@ -7,6 +7,6 @@
 # Format: key=value (no quotes)
 
 # Backend port (used by Axum server and Vite proxy)
-backend_port=3000
+backend_port=3100
 
-# If this file doesn't exist, default port 3000 is used.
+# If this file doesn't exist, default port 3100 is used.

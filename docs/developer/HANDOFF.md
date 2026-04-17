@@ -1,192 +1,174 @@
 # Handoff to the next agent
 
-Written 2026-04-16 by the agent that scaffolded this
-project from the rustbase template. You are the next
-agent — read this once end-to-end before touching
-anything.
+Current as of 2026-04-17, version **0.6.0**. You are
+the next agent — read this once end-to-end before
+touching anything. Previous handoff was written by the
+scaffolding agent and is now superseded; the scaffold
+is long done.
 
-## Your job
+## What's built
 
-Build `bellwether`: a Rust server that pulls state from
-Home Assistant + weather from the Windy Point Forecast
-API, renders e-ink dashboards server-side, and serves
-them to a [TRMNL](https://trmnl.com/) e-paper display
-via webhook. Intended to run on a Raspberry Pi (hostname
-`malina`).
+Six feature commits after the scaffold:
 
-The project is **scaffold only** right now. Every line
-of domain logic is yours to add.
+| Version | PR | What |
+|---------|----|------|
+| 0.2.0 | PR 1 | Config skeleton (TOML loader, `api_key_file` indirection, `Config::load`) |
+| 0.3.0 | PR 2 | Windy Point Forecast client (`clients::windy`) |
+| 0.4.0 | PR 3a | SVG → 1-bit BMP renderer (`render::Renderer`) |
+| 0.5.0 | PR 3b | TRMNL BYOS endpoints (`/api/display`, `/api/log`, `/images/:filename`) |
+| 0.6.0 | PR 3c | Fetch → render → publish loop (`publish::PublishLoop`) under a `supervise` wrapper |
 
-## What's already done (don't redo)
+Every commit went through `/commit` with red-team +
+artisan reviews; ~80 findings addressed and documented
+in `redteam-resolved.md` / `artisan-resolved.md`. The
+non-obvious design decisions live there, not in code
+comments — read them before changing the design.
 
-- Rust workspace renamed to `bellwether` /
-  `bellwether-web`. Binary is `bellwether`, web binary
-  is `bellwether-web`. **Do not rename again.**
-- Scaffold inherited from the `rustbase` template at
-  commit `076cf44` (v0.4.0): `xtask validate` with fmt
-  + clippy + tests + coverage (>=90%) + dupes (<=6%) +
-  `svelte-check`; Playwright E2E; `/commit` discipline;
-  CI + release workflows.
-- `.template-sync.toml` pins the upstream baseline.
-  When you want rustbase improvements, use
-  `/template-sync` — don't cherry-pick manually.
-- Frontend is a Svelte 5 + Vite scaffold with TS. It
-  shows the placeholder status/greeting cards. Treat
-  it as the future **control panel** for selecting HA
-  entities and editing layouts, not as the e-ink
-  output.
+## What works end-to-end
 
-## What to figure out before writing code
+```bash
+cargo run -p bellwether-web -- --config config.toml
+```
 
-These questions were flagged in the source brief
-(`D:/src/phren/knowledge/projects/trmnl-display-for-home-assistant-and-weather.md`)
-and are still open. Resolve them before designing
-anything.
+- Loads TOML config (validated: lat/lon ranges, render
+  dims ≤ 4096, refresh rate ∈ 1..=86400).
+- Reads Windy API key from `windy_key.txt`.
+- Seeds the image store with a geometric placeholder
+  BMP.
+- Spawns the publish loop under
+  `bellwether::publish::supervise`. Every
+  `default_refresh_rate_s` the loop fetches Windy,
+  renders a placeholder dashboard (bar scaled by
+  current temperature; X overlay when no data), and
+  puts the BMP into the `ImageStore`.
+- Axum serves `/api/display`, `/api/log`,
+  `/images/{filename}`. Optional `Access-Token`
+  middleware gated on `BELLWETHER_ACCESS_TOKEN`.
 
-1. **TRMNL webhook protocol.** What HTTP endpoint does
-   the TRMNL device poll? What content-type and
-   dimensions does it expect (raw BMP? PNG? base64?
-   manifest JSON?)? Read the firmware source at
-   [usetrmnl/firmware](https://github.com/usetrmnl/firmware)
-   and the official HA add-on at
-   [usetrmnl/trmnl-home-assistant](https://github.com/usetrmnl/trmnl-home-assistant)
-   — that repo is the canonical reference. Look at
-   [pwojtaszko/trmnl-home-assistant-plugin](https://github.com/pwojtaszko/trmnl-home-assistant-plugin)
-   and
-   [TilmanGriesel/ha_trmnl_weather_station](https://github.com/TilmanGriesel/ha_trmnl_weather_station)
-   for working examples of the webhook payload.
-2. **Grayscale vs. 1-bit.** Does the TRMNL panel
-   support 2-bit / 4-bit grayscale or only
-   black/white? Dithering strategy depends on the
-   answer. The firmware repo has hardware specs.
-3. **Image format.** Native resolution (800x480 is the
-   rumor), bit depth, orientation, refresh rate
-   expectations.
-4. **Rust rendering crate.** Candidates:
-   [`resvg`](https://crates.io/crates/resvg) (author
-   layouts as SVG, render to raster — author-friendly),
-   [`image`](https://crates.io/crates/image) (direct
-   raster manipulation — faster but layout is code),
-   [`tiny-skia`](https://crates.io/crates/tiny-skia)
-   (2D drawing). Recommend `resvg` for v1 — SVG
-   templates are the easiest thing to iterate on.
-5. **HA auth model.** Long-lived access token vs.
-   OAuth. LLA token is simpler for a personal project.
+`--dev` mode skips the publish loop and serves only
+the placeholder — useful for frontend work without a
+Windy key.
 
-Answer these via README/doc writeup before you begin
-implementing — a 10-minute spike doc beats a week of
-wrong code.
+Default port is 3100 (was 3000 originally; changed
+because operator's 3000 was taken).
 
-## First three PRs (suggested order)
+## Open decisions you need the user to make
 
-Each PR should go through `/commit`: red-team +
-artisan review, version bump, CHANGELOG, DIARY.
+The user hasn't confirmed these; they may block later
+PRs.
 
-1. **Config skeleton.** Add a TOML config file
-   (`config.toml` by default, `--config` flag) with
-   sections: `[home_assistant]` (base_url, token_file),
-   `[windy]` (api_key_file, lat, lon), `[trmnl]`
-   (device_id, webhook_url or plugin_id),
-   `[render]` (layout_path, dimensions). Token /
-   key files keep secrets out of the config. Add a
-   `config::load` unit test and a fixture file under
-   `test-data/`.
-2. **HA + Windy client stubs.** Two crates or modules:
-   `clients::home_assistant` and `clients::windy`.
-   Each has a `fetch()` method returning a small
-   domain type. Start with mock HTTP (use
-   [`wiremock`](https://crates.io/crates/wiremock) in
-   tests) and **don't** hit real endpoints in unit
-   tests. Leave real-network tests behind a
-   `#[ignore]` attribute with an env-var guard.
-3. **First render + TRMNL publish.** Given a baked-in
-   SVG layout and fixture data from steps 1-2,
-   render to a PNG (or whatever TRMNL wants, per
-   question 3 above) and POST it to the webhook
-   endpoint. Add an E2E test using
-   `wiremock` as a stand-in for the TRMNL server.
+1. **Device BYOS status.** Is the TRMNL device at
+   `malina` already reconfigured to point at the
+   bellwether server, or still polling `trmnl.com`?
+   BYOS needs the device's server URL to be flashed
+   or configured. Verify before PR 3d's real
+   dashboard goes live — otherwise you're rendering
+   into a store no device ever reads.
+2. **Dashboard font choice.** PR 3d needs at least
+   one bundled font for text rendering. Options: m6x11
+   (permissively licensed, ~6KB), Geist Mono (SIL OFL,
+   larger but nice), or a pixel font crafted for
+   e-ink. The user has preferences — ask with
+   `AskUserQuestion` showing 2-3 options before
+   bundling anything.
+3. **Dashboard layout.** What should the dashboard
+   actually show? Candidates: current conditions +
+   3-day forecast, hourly sparklines, astro info
+   (sunrise/sunset), HA entity list. Sketch a
+   wireframe before rendering.
+4. **Production deployment.** Is the plan a
+   systemd unit on `malina`, a Docker container, or
+   something else? Affects the "deployment" section
+   a future PR will need.
 
-After PR 3, the loop `fetch -> render -> publish` is
-working end-to-end with fakes; all downstream work is
-filling in real data sources, layouts, and scheduling.
+## Recommended next PRs
 
-## User's working style (observed)
+In rough order of value / unblock-ratio:
 
-- **Small, reviewed PRs over big ones.** `/commit`
-  triggers red-team + artisan reviews; don't bypass
-  them even on "obvious" changes.
-- **TDD red/green/refactor.** `CLAUDE.md` enforces
-  it. No "I'll add tests later."
-- **80-char line width** for both code (`rustfmt.toml`)
-  and markdown. `cargo xtask validate` doesn't check
-  markdown width — you do.
-- **Strict quality gates.** Coverage >=90%, duplication
-  <=6%, zero clippy warnings, `#[forbid(unsafe_code)]`.
-  If a threshold gets in your way, don't lower it —
-  talk to the user.
-- **Ask when in doubt.** The user prefers
-  `AskUserQuestion` with 2-4 concrete options over
-  open-ended "what do you want?" questions. Options
-  should include a `(Recommended)` marker when you
-  have a strong preference.
-- **No `cd` to project root, no `git -C <dir>`.**
-  Both trigger permission prompts in the user's
-  Claude Code setup. Use dedicated tools (Read, Edit,
-  Grep, Glob) and absolute paths.
-- **Never push without being asked.** The user runs
-  `push` explicitly after reviewing the commit.
-- **Secrets.** The user has an annual Windy
-  subscription; **don't** ask them to generate new
-  keys or sign up for anything. Expect keys loaded
-  from `.env` or a file path named in config.
+1. **PR 3d — real dashboard layout.** Biggest
+   visible win. Pick a font, design a layout, replace
+   `build_dashboard_svg` placeholder. Extends the
+   `ForecastRenderer` trait boundary (AQ-065 TODO in
+   publish/mod.rs — if a second sink consumer
+   appears, promote `ImageSink` to a neutral
+   `crate::sink` module).
+2. **PR 3e — telemetry persistence + `/api/status`.**
+   Currently `/api/log` drops everything after
+   logging. Persist in `TrmnlState` → expose via
+   `/api/status` so the operator sees device health
+   at a glance. Enables refresh-rate adaptation
+   later. Tracked in `TODO.md` → "PR 3d / later".
+3. **PR 3f — Home Assistant client.** Mirrors the
+   Windy client. Spike §5 settled on long-lived
+   access token via `token_file`. Use `wiremock`
+   for tests (same pattern as `clients::windy`).
+4. **PR 3g — real-device smoke test.** End-to-end
+   validation against the actual TRMNL at `malina`.
+   Depends on open decision #1.
+5. **CI hardening.** `cargo audit` + `cargo deny`
+   in the xtask pipeline. Queued as a chore in
+   `TODO.md`.
 
-## Key files to read first
+## User working style
 
-Spend 10 minutes before your first tool call on these:
+See `CLAUDE.md` for the full list. Two guardrails
+learned from past corrections that aren't there yet:
 
-1. `CLAUDE.md` — project conventions
-2. `README.md` — project-facing summary
-3. `docs/developer/DIARY.md` — what happened so far
-4. `docs/developer/template-feedback.md` — log anything
-   awkward about the inherited template here instead
-   of just fixing it silently
-5. `llms.txt` — machine-readable summary
-6. `crates/bellwether-web/src/api/mod.rs` — the one
-   piece of backend code that exists (scaffold API)
-7. The source brief at
-   `D:/src/phren/knowledge/projects/trmnl-display-for-home-assistant-and-weather.md`
-   if it's still there. If not, the relevant content
-   is: TRMNL e-paper dashboard + HA REST API + Windy
-   Point Forecast + server-side render + RPi host
-   `malina`.
+- **Don't stash intermediate files in `/tmp`.** On
+  Windows it maps to `%AppData%\Local\Temp\` — outside
+  the workspace, invisible to the operator. When
+  handing large output to a subagent, have the
+  subagent run the command itself, or write to
+  `target/…` (git-ignored).
+- **Use the six-field finding format.** When
+  presenting review findings, match the `/commit`
+  skill spec: ID, Source, Category, Description,
+  Impact, Suggested fix. Don't compress to prose.
+
+## Memory
+
+Local Claude Code memory may add context on the
+operator's own machine; everywhere else, this file +
+`CLAUDE.md` are the whole picture. Any memory entry
+load-bearing enough that the project depends on it
+should migrate into `CLAUDE.md` or here.
+
+## Where to find more
+
+- `docs/developer/DIARY.md` — timeline of every
+  feature with design rationale.
+- `docs/developer/spike.md` — the original design
+  spike that settled TRMNL protocol choice (BYOS),
+  render stack (`resvg` + hand-rolled BMP),
+  dithering (Floyd–Steinberg), HA auth (long-lived
+  token).
+- `docs/developer/redteam-resolved.md` +
+  `artisan-resolved.md` — ~80 resolved review
+  findings with resolution notes. The "why" behind
+  most non-obvious decisions.
+- `docs/developer/template-feedback.md` — upstream
+  rustbase issues discovered while building this.
+  Feeds back via `/template-sync`.
+- `TODO.md` — prioritized next work + backlog +
+  chores.
+- `CHANGELOG.md` — per-version user-visible
+  changes.
+- `CLAUDE.md` — hard project conventions.
 
 ## External references
 
-- TRMNL: https://trmnl.com/
-- TRMNL firmware (reference for webhook payload):
-  https://github.com/usetrmnl/firmware
-- TRMNL HA add-on (official):
-  https://github.com/usetrmnl/trmnl-home-assistant
-- TRMNL HA plugin (community, working code):
-  https://github.com/pwojtaszko/trmnl-home-assistant-plugin
-- TRMNL sensor push (community):
-  https://github.com/gitstua/trmnl-sensor-push
-- Weather station example for TRMNL:
-  https://github.com/TilmanGriesel/ha_trmnl_weather_station
-- Windy Point Forecast API:
-  https://api.windy.com/point-forecast/docs
-- Home Assistant REST API:
-  https://developers.home-assistant.io/docs/api/rest/
-- Rust image rendering:
-  https://crates.io/crates/resvg ,
-  https://crates.io/crates/image ,
-  https://crates.io/crates/tiny-skia
+- TRMNL firmware: https://github.com/usetrmnl/firmware
+  (critical reference — `lib/trmnl/src/bmp.cpp`
+  defines the BMP palette ordering we match).
+- TRMNL HA add-on: https://github.com/usetrmnl/trmnl-home-assistant
+- Windy Point Forecast API: https://api.windy.com/point-forecast/docs
+- Home Assistant REST API: https://developers.home-assistant.io/docs/api/rest/
+- rustbase template:
+  https://github.com/breki/rustbase
 
-## A note on the rustbase template
+## On the rustbase template
 
-This project tracks `breki/rustbase` upstream. If you
-find template issues (bad defaults, missing features),
-log them in `docs/developer/template-feedback.md` with
-one of the status prefixes `[Deferred]`,
-`[Fixed locally]`, or `[N/A for template]`. Upstream
-improvements flow back via `/template-sync`.
+This project tracks `breki/rustbase`. Log template
+issues in `docs/developer/template-feedback.md` —
+upstream improvements flow back via `/template-sync`.
+Don't cherry-pick manually.

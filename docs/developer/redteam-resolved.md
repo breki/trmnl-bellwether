@@ -5,6 +5,64 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (chore — port 3100 + config.example + HANDOFF rewrite)
+
+### RT-057 — Example config recommended quota-exhausting refresh rate
+**Category:** Correctness
+**Description:** `config.example.toml` shipped
+`default_refresh_rate_s = 60` with a comment claiming
+it kept calls inside Windy's "12-calls/hour free-tier
+quota." The 12/hour figure is the TRMNL cloud webhook
+plugin limit (BYOS mode has none), and 60 s ≠ 12/hour
+anyway.
+**Resolution:** Default bumped to 900 s (15 min), in
+line with the fixture and spike. Comment rewritten to
+reference the Windy Personal plan budget correctly
+and note that 60 s is acceptable for local iteration
+but should not be committed.
+
+### RT-058 — `.gitignore` root-anchored for credential files
+**Category:** Security
+**Description:** `/windy_key.txt` and `/ha_token.txt`
+with leading `/` only matched at repo root. A secret
+file dropped into `crates/bellwether/` or `deploy/`
+would slip past the ignore and commit on `git add -A`.
+**Resolution:** Leading `/` dropped for the credential
+filenames (kept on `/config.toml` where the
+root-anchoring is defensible). `windy_key.txt` and
+`ha_token.txt` now ignored at any depth.
+
+### RT-059 — CHANGELOG `[Unreleased]` empty despite user-visible change
+**Category:** Project config
+**Description:** The port default moved from 3000 to
+3100 — user-visible. `config.example.toml`, new
+`.gitignore` conventions, and a new README section
+also landed. `[Unreleased]` was empty.
+**Resolution:** Added `### Changed` (port default)
+and `### Added` (config.example.toml, README section,
+HANDOFF rewrite) entries to `[Unreleased]`.
+
+### RT-060 — `CLAUDE.md` pointer described stale HANDOFF content
+**Category:** Correctness (doc accuracy)
+**Description:** The pointer text referenced "open
+questions, recommended first steps" — scaffolding-era
+language that no longer matches the rewritten
+HANDOFF.
+**Resolution:** Pointer now reads "current build
+state, open decisions that block future PRs,
+recommended next PRs, and user preferences."
+
+### RT-061 — README `echo` recipe taught fragile whitespace pattern
+**Category:** Correctness (low severity)
+**Description:** `echo "your-windy-api-key" >
+windy_key.txt` appends a newline. The loader trims so
+it works, but the pattern is a footgun if ever copied
+to a non-trimming context.
+**Resolution:** Switched to `printf '%s' "..." >
+windy_key.txt`, portable and newline-free.
+
+---
+
 ## 2026-04-17 (PR 3c — v0.6.0 fetch/render/publish loop)
 
 ### RT-049 — `tokio::time::interval(0)` panics the publish task

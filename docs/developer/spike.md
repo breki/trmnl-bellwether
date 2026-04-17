@@ -254,7 +254,7 @@ mode = "byos"                # or "webhook"
 # We only need to know what to serve; the device has
 # our URL baked in via its own setup.
 [trmnl.byos]
-public_image_base = "http://malina.local:3000/images"
+public_image_base = "http://malina.local:3100/images"
 default_refresh_rate_s = 900
 
 # Webhook mode: we push to trmnl.com.

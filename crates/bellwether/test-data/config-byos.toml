@@ -7,7 +7,7 @@ parameters = ["temp", "wind", "precip"]
 
 [trmnl]
 mode = "byos"
-public_image_base = "http://malina.local:3000/images"
+public_image_base = "http://malina.local:3100/images"
 
 [render]
 width = 800

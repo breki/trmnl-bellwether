@@ -285,7 +285,7 @@ mod tests {
             TrmnlConfig::Byos(byos) => {
                 assert_eq!(
                     byos.public_image_base,
-                    "http://malina.local:3000/images",
+                    "http://malina.local:3100/images",
                 );
                 assert_eq!(byos.default_refresh_rate_s, 900);
             }

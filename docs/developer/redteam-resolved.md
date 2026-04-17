@@ -5,6 +5,119 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-17 (PR 3b — v0.5.0 TRMNL BYOS endpoints)
+
+### RT-036 / RT-045 — Split-lock race (torn state between `images` and `latest`)
+**Category:** Correctness
+**Resolution:** Collapsed `ImageStore` into a single
+`RwLock<ImageStoreInner>` containing both the map and
+the `Option<String>` latest pointer. All mutations are
+atomic; readers of `latest_filename()` always see the
+matching bytes.
+
+### RT-037 — Lock poisoning propagates to every request
+**Category:** Correctness (DoS)
+**Resolution:** All `RwLock::read()`/`write()` calls
+use `.unwrap_or_else(PoisonError::into_inner)` to
+recover from poisoning. The BTreeMap can't be left in
+a logically invalid state by an in-flight panic, so
+recovery is safe.
+
+### RT-038 — URL injection via filename in `image_url`
+**Category:** Security
+**Resolution:** `ImageStore::put_image` validates
+filenames against `[A-Za-z0-9._-]{1,128}`, rejects
+empty strings and leading dots. New
+`InvalidFilename` error variant. Any `/`, `?`, `#`,
+CRLF, or URL-like path flowing through `put_image` is
+rejected at insert time before it can reach
+`image_url`. Tests cover the common attempts.
+
+### RT-039 — Malformed `public_image_base` produces nonsense URLs
+**Category:** Correctness
+**Resolution:** `TrmnlState::new` now validates the
+base URL: non-empty, `http://` or `https://` scheme,
+no query or fragment. Returns `InvalidBaseUrl`.
+`"/"`, `"///"`, bare hostnames, and query/fragment
+strings all rejected.
+
+### RT-040 — `bytes.to_vec()` copies full BMP per GET
+**Category:** Performance
+**Resolution:** `ImageStore` stores `Bytes` (refcounted)
+instead of `Arc<[u8]>`; `serve_image` returns the
+`Bytes` directly, which axum implements
+`IntoResponse` for. Zero-copy from store to wire.
+
+### RT-041 — `/api/log` unbounded body + full-payload INFO log
+**Category:** Security (DoS + log amplification)
+**Resolution:** `DefaultBodyLimit::max(16 KiB)`
+applied to the route; `TelemetryPayload` struct
+parses known fields (battery_voltage, rssi,
+fw_version) and structurally logs them at INFO.
+Extras flow through `#[serde(flatten)] HashMap` and
+are only printed at DEBUG, with an `extra_keys` count
+at INFO so operators see unusual shapes without log
+flooding. Test `log_rejects_oversized_body` confirms
+the 413 response.
+
+### RT-042 — No `Access-Token` authentication
+**Category:** Security
+**Resolution:** Optional token gating wired through a
+`require_access_token` middleware and
+`TrmnlState::with_access_token(token)`. Token comes
+from `BELLWETHER_ACCESS_TOKEN` env var at startup;
+empty/unset is treated as "no auth" for LAN-only
+deployments with a prominent `tracing::warn` at
+startup. Full config-file integration (mirroring
+`windy.api_key_file`) can follow in a later PR
+without breaking the wire format. Tests exercise
+missing/wrong/correct token paths and the
+empty-token escape hatch.
+
+### RT-043 / AQ-052 — `seed_placeholder` swallowed errors
+**Category:** Correctness / UX
+**Resolution:** `seed_placeholder` now returns
+`Result<()>`; `build_trmnl_state` uses `?` so a
+broken renderer surfaces at startup as an anyhow
+error rather than a silent 503.
+
+### RT-046 / AQ-053 — `LogRequest` `#[serde(transparent)]` earned nothing
+**Category:** API clarity
+**Resolution:** Deleted the wrapper. The handler now
+takes `Json<TelemetryPayload>` — a proper struct with
+the known device fields plus a flatten catch-all.
+
+### RT-047 / AQ-050 — Two `.nest("/api")` calls — startup-panic risk
+**Category:** Correctness (test coverage)
+**Resolution:** TRMNL router is now returned as a
+complete `Router<()>` from `trmnl::router(state)`
+(with state baked in), merged once into the top-level
+router. Scaffold routes remain a separate nest; both
+are merged via `.merge()`. New integration test
+`trmnl_routes_reachable_through_create_router`
+verifies `/api/display` resolves via the full
+`create_router()`, so route-tree conflicts surface at
+`cargo test` instead of at first request.
+
+## Noted — not acted on
+
+### RT-044 — `seed_placeholder` runs sync on the runtime thread
+**Category:** Performance (minor)
+**Resolution:** Deferred. The placeholder render
+takes ~20 ms on a Pi; moving to `tokio::spawn` after
+listener bind would let the server respond 503 during
+rendering instead of delaying "listening on …" by
+20 ms. Not worth the complexity right now.
+
+### RT-048 — `/api/log` drops telemetry
+**Category:** Feature gap
+**Resolution:** Deferred. Added TODO for PR 3d:
+persist last telemetry in `TrmnlState`, expose via
+`/api/status` for operator visibility and for
+refresh-rate adaptation.
+
+---
+
 ## 2026-04-17 (PR 3a — v0.4.0 render module)
 
 ### RT-024 — Palette convention may be inverted (VERIFIED CORRECT)

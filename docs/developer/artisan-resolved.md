@@ -6,6 +6,101 @@ findings.
 
 ---
 
+## 2026-04-17 (PR 3b — v0.5.0 TRMNL BYOS endpoints)
+
+### AQ-046 — Same as RT-036 (composite RwLock)
+**Resolution:** See RT-036.
+
+### AQ-047 — Same as RT-040 (zero-copy BMP response)
+**Resolution:** See RT-040.
+
+### AQ-048 — `#[non_exhaustive]` missing on public types
+**Category:** API evolution
+**Resolution:** Added to `TrmnlState`, `DisplayResponse`,
+`ImageStore`, `InvalidFilename`, `InvalidBaseUrl` to
+match the convention used in config / render modules.
+
+### AQ-049 — Inconsistent re-exports from `api::mod`
+**Resolution:** Trimmed to the types callers actually
+use: `TrmnlState`, `RefreshInterval`.
+`DisplayResponse`, `ImageStore`, and error types stay
+reachable via `api::trmnl::*` but aren't re-exported
+at the module level.
+
+### AQ-050 — Same as RT-047 (single `/api` nest + tested)
+**Resolution:** See RT-047.
+
+### AQ-051 — `--config` optional silently masked misconfiguration
+**Category:** UX / deployment
+**Resolution:** `--config` now errors out if absent
+unless the new `--dev` flag is passed. `--dev` emits a
+clear warning. Production deployments that forget
+`--config` fail fast with a clear message.
+
+### AQ-053 — Same as RT-046 (delete `LogRequest` wrapper)
+**Resolution:** See RT-046.
+
+### AQ-054 — `default_refresh_rate_s: u32` unit-encoded in field name only
+**Category:** Type safety
+**Resolution:** Introduced `RefreshInterval(Duration)`
+newtype with `from_secs(u32)` constructor and a
+`Serialize` impl that emits `u32` seconds. Every
+construction site reads as "seconds"; future
+constructors can introduce `from_minutes` / `from_millis`
+without breaking the wire format. Test
+`refresh_interval_serializes_as_u32_seconds` locks
+the JSON shape.
+
+### AQ-055 — `firmware_url` always-empty String
+**Category:** Type honesty
+**Resolution:** Changed to
+`firmware_url: Option<String>` with
+`#[serde(skip_serializing_if = "Option::is_none")]`.
+Field is omitted from `/api/display` JSON when
+no firmware update is pending (always, for now).
+
+### AQ-056 — Module ~390 lines — break the directory convention
+**Resolution:** Split into
+`crates/bellwether-web/src/api/trmnl/mod.rs` +
+`api/trmnl/tests.rs`. Matches the pattern in
+`config/`, `clients/windy/`, and `render/`.
+
+### AQ-057 — `PLACEHOLDER_SVG` in binary
+**Category:** Abstraction
+**Resolution:** Moved to
+`crates/bellwether/src/render/placeholder.svg` and
+exposed as `Renderer::placeholder_bmp(&RenderConfig)`.
+Both `bellwether-web`'s startup and the future
+render loop (PR 3c) will call the same helper; no
+copy-paste.
+
+### AQ-058 — Logging full telemetry payload at INFO
+**Resolution:** See RT-041. Known fields log at INFO,
+extras only at DEBUG.
+
+### AQ-059 — `trim_end_matches('/')` per request
+**Resolution:** `TrmnlState::new` now calls
+`normalize_base` which trims / validates once. The
+`display` handler concatenates the already-normalized
+base with the filename.
+
+### AQ-060 — Over-generic `impl Into<T>` on cold-path setters
+**Resolution:** `put_image`, `TrmnlState::new`, and
+`RefreshInterval::from_secs` take concrete types
+(`String`, `Bytes`, `&str`, `u32`). Callers with
+`&str` write `.to_owned()` once; compile times and
+docs are both slightly cleaner.
+
+### AQ-061 — `TrmnlState::images: pub Arc<ImageStore>` leaked storage shape
+**Category:** Abstraction
+**Resolution:** Field is now private. Public methods
+`put_image`, `get_image`, `latest_filename`,
+`public_image_base`, `default_refresh_interval`.
+Future ImageStore refactors (eviction, size cap) can
+change the shape without breaking callers.
+
+---
+
 ## 2026-04-17 (PR 3a — v0.4.0 render module)
 
 ### AQ-031 — `ParseSvg(String)` loses structured usvg error info

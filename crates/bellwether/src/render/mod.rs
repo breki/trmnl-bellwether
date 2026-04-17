@@ -163,6 +163,18 @@ impl Renderer {
         std::sync::Arc::make_mut(&mut self.options.fontdb).load_font_data(data);
     }
 
+    /// Render the built-in placeholder layout — a
+    /// geometric font-free pattern — at the configured
+    /// dimensions. Intended for servers to seed their
+    /// image store with *something* before the first
+    /// real render completes.
+    pub fn placeholder_bmp(
+        &self,
+        cfg: &RenderConfig,
+    ) -> Result<Vec<u8>, RenderError> {
+        self.render_to_bmp(include_str!("placeholder.svg"), cfg)
+    }
+
     /// Render an SVG string to a 1-bit BMP byte vector
     /// sized according to `cfg.width` × `cfg.height`.
     pub fn render_to_bmp(

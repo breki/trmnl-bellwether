@@ -10,6 +10,45 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-17
+
+### Added
+
+- TRMNL BYOS endpoints on `bellwether-web`:
+  `GET /api/display` returns the image manifest,
+  `POST /api/log` accepts device telemetry (16 KiB
+  body limit), `GET /images/{filename}` serves
+  rendered BMPs.
+- `--config <FILE>` required on `bellwether-web`
+  (pass `--dev` to run with localhost defaults).
+- `Renderer::placeholder_bmp` in the `bellwether`
+  library — renders a built-in font-free geometric
+  SVG for seeding servers before the first real
+  render.
+- `TrmnlState` shared state with composite-locked
+  `ImageStore`, validated filenames
+  (`[A-Za-z0-9._-]{1,128}`), validated base URL
+  (`http`/`https` scheme required, no query /
+  fragment), and optional `Access-Token` middleware
+  driven by the `BELLWETHER_ACCESS_TOKEN` env var.
+- `RefreshInterval` newtype so the wire-format unit
+  (seconds) is visible at every construction site.
+
+### Security
+
+- TRMNL endpoints reject >16 KiB POST bodies on
+  `/api/log` before they reach `tracing` (prevents
+  log amplification).
+- Known telemetry fields (battery voltage, RSSI,
+  firmware version) log at INFO; full payload only
+  at DEBUG.
+- Filenames passed to `TrmnlState::put_image` are
+  validated at insert time, so URL injection via the
+  `image_url` field is impossible.
+- Optional access-token middleware gates all TRMNL
+  BYOS endpoints when `BELLWETHER_ACCESS_TOKEN` is
+  set.
+
 ## [0.4.0] - 2026-04-17
 
 ### Added

@@ -134,6 +134,18 @@ fn rejects_unsupported_bit_depth() {
 }
 
 #[test]
+fn placeholder_bmp_renders_at_configured_dimensions() {
+    let cfg = RenderConfig {
+        width: 64,
+        height: 32,
+        ..Default::default()
+    };
+    let bmp = Renderer::new().placeholder_bmp(&cfg).unwrap();
+    let (_, w, h) = bmp_to_bits(&bmp);
+    assert_eq!((w, h), (64, 32));
+}
+
+#[test]
 fn debug_impl_mentions_font_count() {
     let r = Renderer::new();
     let s = format!("{r:?}");

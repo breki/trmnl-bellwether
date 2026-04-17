@@ -6,26 +6,35 @@ use serde::Serialize;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
+pub mod trmnl;
+
+pub use trmnl::{RefreshInterval, TrmnlState};
+
 /// Create the application router.
 ///
-/// - `/health` -- health check endpoint
-/// - `/api/*` -- API routes
-/// - Everything else -- serves static files from
-///   `frontend_path`, falling back to `index.html`
-///   for SPA client-side routing.
-pub fn create_router(frontend_path: &Path) -> Router {
+/// - `/health` — health check endpoint
+/// - `/api/*` — scaffold API (`/status`, `/greeting`)
+///   plus TRMNL BYOS endpoints (`/api/display`,
+///   `/api/log`)
+/// - `/images/{filename}` — rendered BMPs for the
+///   TRMNL device to fetch
+/// - Everything else — serves static files from
+///   `frontend_path`, falling back to `index.html` for
+///   SPA client-side routing.
+pub fn create_router(frontend_path: &Path, trmnl: TrmnlState) -> Router {
     let index_path = frontend_path.join("index.html");
     let serve_dir = ServeDir::new(frontend_path)
         .not_found_service(ServeFile::new(&index_path));
 
     Router::new()
         .route("/health", get(health))
-        .nest("/api", api_routes())
+        .nest("/api", scaffold_api())
+        .merge(trmnl::router(trmnl))
         .fallback_service(serve_dir)
         .layer(TraceLayer::new_for_http())
 }
 
-fn api_routes() -> Router {
+fn scaffold_api() -> Router {
     Router::new()
         .route("/status", get(status))
         .route("/greeting", get(greeting))
@@ -75,9 +84,20 @@ mod tests {
 
     use super::*;
 
+    fn test_router() -> Router {
+        create_router(
+            Path::new("nonexistent"),
+            TrmnlState::new(
+                "http://host.test/images",
+                RefreshInterval::from_secs(900),
+            )
+            .unwrap(),
+        )
+    }
+
     #[tokio::test]
     async fn health_returns_ok() {
-        let app = create_router(Path::new("nonexistent"));
+        let app = test_router();
         let response = app
             .oneshot(
                 Request::builder()
@@ -98,7 +118,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_returns_version() {
-        let app = create_router(Path::new("nonexistent"));
+        let app = test_router();
         let response = app
             .oneshot(
                 Request::builder()
@@ -120,7 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn greeting_returns_message() {
-        let app = create_router(Path::new("nonexistent"));
+        let app = test_router();
         let response = app
             .oneshot(
                 Request::builder()
@@ -132,5 +152,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // Sanity check that the nested routers don't collide
+    // at startup — if scaffold_api and trmnl::router
+    // grow overlapping paths, this test fails rather than
+    // the binary panicking at first request.
+    #[tokio::test]
+    async fn trmnl_routes_reachable_through_create_router() {
+        let app = test_router();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/display")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

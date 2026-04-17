@@ -7,6 +7,32 @@ reverse chronological order.
 
 ### 2026-04-17
 
+- TRMNL BYOS endpoints on `bellwether-web` (v0.5.0)
+
+    New `api::trmnl` module exposes `GET /api/display`
+    (JSON manifest matching TRMNL OG firmware fields),
+    `POST /api/log` (telemetry, 16 KiB body cap,
+    known fields logged structurally at INFO / extras
+    at DEBUG), and `GET /images/{filename}` (zero-copy
+    `Bytes` response). `ImageStore` uses a single
+    composite `RwLock` so readers never see a filename
+    whose bytes aren't yet inserted. Filenames are
+    validated at insert time
+    (`[A-Za-z0-9._-]{1,128}`) so nothing
+    user-controllable can flow into the advertised
+    `image_url`. `public_image_base` is validated for
+    scheme + no-query at construction. Optional
+    `Access-Token` middleware reads
+    `BELLWETHER_ACCESS_TOKEN`; absent token emits a
+    `WARN` at startup for LAN-only deployments.
+    `bellwether-web --config` is now required unless
+    `--dev` is passed. `Renderer::placeholder_bmp`
+    moved to the library (`crates/bellwether/src/render/
+    placeholder.svg` via `include_str!`) so the
+    render-loop work in PR 3c can reuse the helper.
+    29 review findings from red-team + artisan; 24
+    addressed in-PR, 5 deferred to TODO.md (docs only).
+
 - Render pipeline: SVG → 1-bit BMP (v0.4.0)
 
     `render::Renderer` parses SVG via `resvg`/`usvg`

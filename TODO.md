@@ -29,6 +29,27 @@
   dedicated CI job so new RUSTSEC advisories fail the
   build. Flagged during PR 3a (RT-034).
 
+## PR 3d / later
+
+- **Persist last device telemetry.** `/api/log` logs
+  structured fields but drops them. PR 3d should
+  persist the last payload in `TrmnlState` (battery
+  voltage, RSSI, FW version) and expose it via
+  `/api/status` so the operator can see device health
+  at a glance. Also enables refresh-rate adaptation
+  (faster polls when battery healthy + data fresh,
+  slower when battery low). Flagged during PR 3b
+  (RT-048).
+- **Config file for Access-Token.** Today the token
+  comes from `BELLWETHER_ACCESS_TOKEN`. Mirror
+  `windy.api_key_file` with `trmnl.byos.access_token_file`
+  for consistency. Flagged during PR 3b (RT-042).
+- **Async placeholder render on startup.** Move
+  `seed_placeholder` behind `tokio::spawn` so the
+  listener binds before the render finishes. Low
+  priority on a Pi (~20 ms render). Flagged during
+  PR 3b (RT-044).
+
 ## Backlog
 
 - **Home Assistant integration** (deferred from PR 1).

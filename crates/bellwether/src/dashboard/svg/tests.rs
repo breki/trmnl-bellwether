@@ -15,7 +15,7 @@ fn embedded_layout_parses_and_resolves() {
     // resolve")` inside `build_svg` — any accidental
     // breakage of `assets/layout.toml` will fail here
     // instead of crashing a production render.
-    let layout = default_layout();
+    let layout = super::super::layout::Layout::embedded_default();
     let resolved = layout
         .resolve()
         .expect("embedded layout.toml must resolve cleanly");

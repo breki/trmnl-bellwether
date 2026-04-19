@@ -18,13 +18,12 @@
 
 canvas = { width = 800, height = 480 }
 
-[layout]
 split = "vertical"
 divider = true
 
 # Header band: brand, title, clock, battery.
 # 50 px tall — fits the 28 px header text plus padding.
-[[layout.children]]
+[[children]]
 size = 50
 split = "horizontal"
 children = [
@@ -38,12 +37,12 @@ children = [
 # condition label + feels-like. Reduced from 140 to
 # 132 px to absorb the 8 px of vertical dividers
 # introduced at the top level.
-[[layout.children]]
+[[children]]
 size = 132
 widget = "current-conditions"
 
 # Meteorology strip: wind, gust, humidity.
-[[layout.children]]
+[[children]]
 size = 50
 split = "horizontal"
 divider = true
@@ -54,7 +53,7 @@ children = [
 ]
 
 # Forecast row: three day tiles.
-[[layout.children]]
+[[children]]
 size = 190
 split = "horizontal"
 children = [
@@ -64,7 +63,7 @@ children = [
 ]
 
 # Footer: today high/low, sunrise, sunset.
-[[layout.children]]
+[[children]]
 size = 50
 split = "horizontal"
 children = [

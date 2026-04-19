@@ -30,8 +30,6 @@
 //! Every optional field renders an em-dash ("—")
 //! placeholder when `None`, never a fake default.
 
-use std::sync::OnceLock;
-
 use chrono::{NaiveTime, Timelike, Weekday};
 
 use super::classify::{Compass8, Condition};
@@ -161,7 +159,7 @@ struct RenderContext<'a> {
 /// [`tests::embedded_layout_parses_and_resolves`].
 #[must_use]
 pub fn build_svg(model: &DashboardModel, now_local: NaiveTime) -> String {
-    build_svg_with_layout(default_layout(), model, now_local)
+    build_svg_with_layout(Layout::embedded_default(), model, now_local)
         .expect("embedded default layout must resolve (test-guaranteed)")
 }
 
@@ -169,7 +167,8 @@ pub fn build_svg(model: &DashboardModel, now_local: NaiveTime) -> String {
 ///
 /// Returns [`LayoutError`] if the layout fails to
 /// resolve — use this entry point when the layout was
-/// loaded from user input.
+/// loaded from user input (e.g. `[dashboard]` in the
+/// main config TOML).
 ///
 /// # Errors
 ///
@@ -192,18 +191,6 @@ pub fn build_svg_with_layout(
         body.push_str(&render_divider(layout.canvas.width, *d));
     }
     Ok(wrap(layout.canvas.width, layout.canvas.height, &body))
-}
-
-/// Embedded default dashboard layout. The source of
-/// truth lives in `crates/bellwether/assets/layout.toml`
-/// and is parsed once on first use.
-fn default_layout() -> &'static Layout {
-    static LAYOUT: OnceLock<Layout> = OnceLock::new();
-    LAYOUT.get_or_init(|| {
-        let src = include_str!("../../../assets/layout.toml");
-        toml::from_str(src)
-            .expect("embedded layout.toml must parse successfully")
-    })
 }
 
 /// Render a single widget at its assigned bounds.

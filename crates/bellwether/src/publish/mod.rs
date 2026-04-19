@@ -37,6 +37,7 @@ use chrono::Utc;
 
 use crate::config::RenderConfig;
 use crate::dashboard;
+use crate::dashboard::layout::Layout;
 use crate::render::{RenderError, Renderer};
 use crate::weather::{WeatherError, WeatherProvider};
 
@@ -96,6 +97,13 @@ pub enum PublishError {
     /// [`WeatherProvider`] failed.
     #[error("fetching weather forecast: {0}")]
     Weather(#[from] WeatherError),
+    /// Resolving the dashboard layout failed. Normally
+    /// caught at `Config::load` time, but the type
+    /// system doesn't force that invariant — a
+    /// `PublishLoop` constructed with a hand-built
+    /// `Layout` can still hit this path.
+    #[error("resolving dashboard layout: {0}")]
+    Layout(#[from] crate::dashboard::layout::LayoutError),
     /// Rendering the SVG to BMP failed.
     #[error("rendering dashboard: {0}")]
     Render(#[from] RenderError),
@@ -103,6 +111,21 @@ pub enum PublishError {
     /// is whatever the sink returned.
     #[error("publishing to sink: {0}")]
     Sink(#[source] SinkError),
+}
+
+/// Non-dependency parameters for [`PublishLoop::new`] —
+/// the configuration values, as opposed to the three
+/// dependency handles (`provider`, `renderer`, `sink`)
+/// which stay positional.
+#[derive(Debug, Clone)]
+pub struct PublishLoopConfig {
+    /// Rendering-pipeline settings (canvas size, bit
+    /// depth, timezone).
+    pub render_cfg: RenderConfig,
+    /// Widget layout to render on each tick.
+    pub layout: Layout,
+    /// Delay between ticks.
+    pub interval: Duration,
 }
 
 /// Periodic fetch → render → publish task.
@@ -115,15 +138,16 @@ pub struct PublishLoop<S: ImageSink> {
     provider: Arc<dyn WeatherProvider>,
     renderer: Renderer,
     render_cfg: RenderConfig,
+    layout: Layout,
     sink: S,
     interval: Duration,
     counter: AtomicU64,
 }
 
 impl<S: ImageSink> PublishLoop<S> {
-    /// Build a new loop. `interval` is the delay between
-    /// successive fetches; pass the same cadence the
-    /// device polls at (typically from
+    /// Build a new loop. `cfg.interval` is the delay
+    /// between successive fetches; pass the same cadence
+    /// the device polls at (typically from
     /// `TrmnlConfig::Byos::default_refresh_rate_s`).
     ///
     /// The loop reads the forecast point from
@@ -135,16 +159,16 @@ impl<S: ImageSink> PublishLoop<S> {
     pub fn new(
         provider: Arc<dyn WeatherProvider>,
         renderer: Renderer,
-        render_cfg: RenderConfig,
         sink: S,
-        interval: Duration,
+        cfg: PublishLoopConfig,
     ) -> Self {
         Self {
             provider,
             renderer,
-            render_cfg,
+            render_cfg: cfg.render_cfg,
+            layout: cfg.layout,
             sink,
-            interval,
+            interval: cfg.interval,
             counter: AtomicU64::new(0),
         }
     }
@@ -189,7 +213,13 @@ impl<S: ImageSink> PublishLoop<S> {
         };
         let now_local = ctx.now.with_timezone(&ctx.tz).time();
         let model = dashboard::build_model(&snapshot, ctx);
-        let svg = dashboard::build_svg(&model, now_local);
+        // `self.layout` is normally validated at
+        // `Config::load` time, but `PublishLoop::new`
+        // doesn't force that — surface the error as
+        // `PublishError::Layout` so `run()` can log and
+        // skip the tick instead of panicking.
+        let svg =
+            dashboard::build_svg_with_layout(&self.layout, &model, now_local)?;
         let bmp = self.renderer.render_to_bmp(&svg, &self.render_cfg)?;
         let filename = self.next_filename();
         self.sink

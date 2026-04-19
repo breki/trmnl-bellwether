@@ -7,6 +7,47 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Inline layout config under `[dashboard]` (v0.15.0)
+
+    The layout can now be declared inline in the main
+    `config.toml` as a `[dashboard]` section with the
+    canvas and root-node fields as siblings:
+
+    ```toml
+    [dashboard]
+    canvas = { width = 800, height = 480 }
+    split = "vertical"
+    divider = true
+
+    [[dashboard.children]]
+    size = 50
+    # ...
+    ```
+
+    Achieved by flattening `Layout.root` into the outer
+    struct via `#[serde(flatten)]`, so users don't see
+    a superfluous `[dashboard.root]` wrapper. The
+    standalone `assets/layout.toml` uses the same
+    shape (no leading section header). When
+    `[dashboard]` is absent,
+    `Config::dashboard_layout()` falls back to
+    `Layout::embedded_default()`.
+
+    The layout is validated at `Config::load` time via
+    `layout.resolve()` → any `Overflow` / `EmptySplit`
+    / arithmetic-overflow is rejected as
+    `ConfigError::InvalidDashboardLayout` at startup,
+    and `Layout::embedded_default` now calls
+    `.resolve()` inside its `OnceLock` init so a
+    broken embedded asset also surfaces at startup.
+
+    `PublishLoop::new` takes a new `PublishLoopConfig
+    { render_cfg, layout, interval }` struct (reducing
+    it from 6 positional args to 4), and `tick_once`'s
+    render path now propagates `LayoutError` as
+    `PublishError::Layout` — `run()` logs it at warn
+    and skips the tick rather than panicking.
+
 - Configurable widget layout via `layout.toml` (v0.14.0)
 
     Replaced the hardcoded 5-band SVG builder with a

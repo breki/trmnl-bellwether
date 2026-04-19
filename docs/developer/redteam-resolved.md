@@ -5,6 +5,20 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-19 (feat — v0.15.0 inline `[dashboard]` layout)
+
+### RT-110 — `expect("layout validated")` in publish tick panicked the loop
+**Category:** Correctness
+**Description:** `PublishLoop::tick_once` unconditionally unwrapped `build_svg_with_layout`. The comment said the layout was validated at `Config::load` time, but `PublishLoop::new` is public and takes any `Layout` — a hand-built or post-mutated layout could fail `resolve()` at render time and crash the loop.
+**Fix:** Added `PublishError::Layout(#[from] LayoutError)`; `tick_once` propagates the error with `?`, `run()` logs it at `warn` and skips the tick just like any other transient publish error. `crates/bellwether/src/publish/mod.rs`.
+
+### RT-111 — `Layout::embedded_default` accepted a parseable-but-unresolvable asset
+**Category:** Correctness
+**Description:** The `OnceLock` init only called `toml::from_str`; an edit to `assets/layout.toml` that parsed but had a resolver-level problem (e.g. oversized fixed children) would sit dormant until the first render tick or test that called `.resolve()`.
+**Fix:** `embedded_default()` now calls `.resolve()` inside `get_or_init` with its own `expect`, so any asset-level breakage fires at startup. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+---
+
 ## 2026-04-19 (feat — v0.14.0 configurable widget layout)
 
 ### RT-100 — `ForecastDay.offset` out-of-range panicked the renderer

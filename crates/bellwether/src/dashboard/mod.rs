@@ -32,4 +32,4 @@ pub use model::{
     CurrentConditions, DAY_TILE_COUNT, DashboardModel, DaySummary,
     MIN_SAMPLES_PER_DAY, ModelContext, TodaySummary, build_model,
 };
-pub use svg::build_svg;
+pub use svg::{build_svg, build_svg_with_layout};

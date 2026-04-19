@@ -19,6 +19,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::dashboard::layout::Layout;
+
 pub use self::render::{BitDepth, RenderConfig};
 pub use self::trmnl::{ByosConfig, TrmnlConfig, WebhookConfig};
 pub use self::weather::{OpenMeteoProviderConfig, ProviderKind, WeatherConfig};
@@ -95,10 +97,16 @@ pub enum ConfigError {
         /// subtable.
         provider: &'static str,
     },
+    /// The `[dashboard]` layout tree failed to resolve.
+    /// Caught at config load time so a broken layout
+    /// fails at startup rather than at the first
+    /// render tick.
+    #[error("invalid [dashboard] layout: {0}")]
+    InvalidDashboardLayout(#[from] crate::dashboard::layout::LayoutError),
 }
 
 /// Top-level configuration.
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Weather provider settings.
@@ -109,6 +117,12 @@ pub struct Config {
     /// Rendering pipeline settings.
     #[serde(default)]
     pub render: RenderConfig,
+    /// Optional dashboard widget layout. When absent,
+    /// [`Layout::embedded_default`] is used. Access via
+    /// [`Config::dashboard_layout`] so callers don't
+    /// have to unwrap the option themselves.
+    #[serde(default)]
+    pub dashboard: Option<Layout>,
 }
 
 impl Config {
@@ -141,6 +155,19 @@ impl Config {
         parse_and_validate(&text, Some(path))
     }
 
+    /// Return the effective dashboard layout: the
+    /// `[dashboard]` section from the config if
+    /// present, otherwise the embedded default.
+    #[must_use]
+    pub fn dashboard_layout(&self) -> &Layout {
+        // Closure (not fn pointer) — `embedded_default`
+        // returns `&'static`, which fn-pointer coercion
+        // can't downcast to `&Self::Item` for `unwrap_or_else`.
+        self.dashboard
+            .as_ref()
+            .unwrap_or_else(|| Layout::embedded_default())
+    }
+
     fn validate(&self) -> Result<(), ConfigError> {
         let lat = self.weather.lat;
         if !lat.is_finite() || !(-90.0..=90.0).contains(&lat) {
@@ -165,6 +192,9 @@ impl Config {
             ));
         }
         self.validate_active_provider()?;
+        if let Some(layout) = &self.dashboard {
+            layout.resolve()?;
+        }
         Ok(())
     }
 
@@ -505,6 +535,70 @@ mod tests {
         ";
         let err = Config::from_toml_str(text).unwrap_err();
         assert!(matches!(err, ConfigError::InvalidLongitude(_)));
+    }
+
+    #[test]
+    fn dashboard_layout_falls_back_to_embedded_default_when_absent() {
+        let cfg = Config::from_toml_str(minimal_byos_toml()).unwrap();
+        let embedded = Layout::embedded_default();
+        let layout = cfg.dashboard_layout();
+        assert_eq!(layout.canvas.width, embedded.canvas.width);
+        assert_eq!(layout.canvas.height, embedded.canvas.height);
+    }
+
+    #[test]
+    fn dashboard_layout_uses_config_override_when_present() {
+        let text = r#"
+            [weather]
+            provider = "open_meteo"
+            lat = 0
+            lon = 0
+
+            [weather.open_meteo]
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+
+            [dashboard]
+            canvas = { width = 400, height = 300 }
+            split = "vertical"
+            children = [{ flex = 1, widget = "clock" }]
+        "#;
+        let cfg = Config::from_toml_str(text).unwrap();
+        let layout = cfg.dashboard_layout();
+        assert_eq!(layout.canvas.width, 400);
+        assert_eq!(layout.canvas.height, 300);
+    }
+
+    #[test]
+    fn rejects_dashboard_layout_that_fails_to_resolve() {
+        // Fixed sizes exceed the canvas → Overflow.
+        let text = r#"
+            [weather]
+            provider = "open_meteo"
+            lat = 0
+            lon = 0
+
+            [weather.open_meteo]
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+
+            [dashboard]
+            canvas = { width = 100, height = 100 }
+            split = "horizontal"
+            children = [
+                { size = 200, widget = "brand" },
+                { size = 200, widget = "clock" },
+            ]
+        "#;
+        let err = Config::from_toml_str(text).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::InvalidDashboardLayout(_)),
+            "expected InvalidDashboardLayout, got {err:?}"
+        );
     }
 
     #[test]

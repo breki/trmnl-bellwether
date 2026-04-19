@@ -382,11 +382,10 @@ fn parses_layout_toml() {
     let toml_src = r#"
 canvas = { width = 800, height = 480 }
 
-[layout]
 split = "vertical"
 divider = true
 
-[[layout.children]]
+[[children]]
 size = 50
 split = "horizontal"
 children = [
@@ -396,11 +395,11 @@ children = [
   { size = 100, widget = "battery" },
 ]
 
-[[layout.children]]
+[[children]]
 size = 140
 widget = "current-conditions"
 
-[[layout.children]]
+[[children]]
 flex = 1
 split = "horizontal"
 children = [

@@ -12,6 +12,50 @@ and this project adheres to
 
 ### Added
 
+- `[dashboard]` section in the main config (e.g.
+  `config.toml`) now optionally carries a full widget
+  layout. `canvas` sits as a sibling field next to the
+  root node's own fields (`split`, `divider`,
+  `children`, etc.) — no intermediate `[dashboard.root]`
+  wrapper, achieved via `#[serde(flatten)]` on the
+  `Layout.root` field. The `[dashboard]` section is
+  validated at `Config::load` time — a layout whose
+  splits fail to resolve is rejected with
+  `ConfigError::InvalidDashboardLayout` instead of
+  crashing at the first publish tick.
+- When `[dashboard]` is absent,
+  `Config::dashboard_layout()` falls back to
+  `Layout::embedded_default()` (the bundled
+  `assets/layout.toml`, which itself now uses the
+  flattened shape).
+- New `PublishError::Layout` variant surfacing render-
+  time `LayoutError`s as logged-and-skipped publish
+  ticks instead of a panic.
+- `PublishLoopConfig { render_cfg, layout, interval }`
+  params struct for `PublishLoop::new`, so the three
+  non-dependency configuration values sit in one
+  place rather than as four positional arguments.
+
+### Changed
+
+- **Breaking API:** `Layout.layout` field renamed to
+  `Layout.root` and now uses `#[serde(flatten)]`, so
+  the TOML no longer wraps the root node in a separate
+  `[layout]` / `[root]` section.
+- **Breaking API:** `PublishLoop::new(provider,
+  renderer, sink, PublishLoopConfig)` replaces the old
+  5-positional form.
+- `Layout::embedded_default` now resolves the embedded
+  layout eagerly inside `OnceLock::get_or_init`,
+  surfacing any embedded-asset breakage at startup
+  rather than at first render.
+- `bellwether-web` threads `cfg.dashboard_layout()`
+  into the publish loop, so editing `[dashboard]` in
+  the main config rearranges the rendered dashboard
+  without touching source.
+
+### Added
+
 - Configurable widget-layout system. The dashboard
   tree (splits, widgets, dividers, sizing) is now
   declared in `crates/bellwether/assets/layout.toml`

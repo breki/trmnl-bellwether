@@ -11,7 +11,8 @@ use bellwether::clients::open_meteo::{
 use bellwether::config::{
     Config, ProviderKind, RenderConfig, TrmnlConfig, WeatherConfig,
 };
-use bellwether::publish::{PublishLoop, supervise};
+use bellwether::dashboard::layout::Layout;
+use bellwether::publish::{PublishLoop, PublishLoopConfig, supervise};
 use bellwether::render::Renderer;
 use bellwether::weather::WeatherProvider;
 use clap::Parser;
@@ -63,6 +64,10 @@ struct Startup {
     weather: Option<WeatherConfig>,
     render_cfg: RenderConfig,
     refresh_interval: RefreshInterval,
+    /// Effective dashboard layout — from config's
+    /// `[dashboard]` section if present, else the
+    /// embedded default.
+    dashboard_layout: Layout,
 }
 
 #[tokio::main]
@@ -93,6 +98,7 @@ async fn main() -> Result<()> {
             startup.trmnl.clone(),
             startup.refresh_interval,
             startup.render_cfg.clone(),
+            startup.dashboard_layout.clone(),
         )?;
     } else {
         tracing::info!(
@@ -122,8 +128,13 @@ async fn main() -> Result<()> {
 /// misconfiguration, missing access token file, or
 /// placeholder render failure.
 fn build_startup(cli: &Cli) -> Result<Startup> {
-    let (weather, public_image_base, refresh_interval, render_cfg) =
-        resolve_serving_config(cli)?;
+    let (
+        weather,
+        public_image_base,
+        refresh_interval,
+        render_cfg,
+        dashboard_layout,
+    ) = resolve_serving_config(cli)?;
 
     let access_token = std::env::var(ACCESS_TOKEN_ENV).unwrap_or_default();
     if access_token.is_empty() {
@@ -148,6 +159,7 @@ fn build_startup(cli: &Cli) -> Result<Startup> {
         weather,
         render_cfg,
         refresh_interval,
+        dashboard_layout,
     })
 }
 
@@ -156,11 +168,18 @@ fn build_startup(cli: &Cli) -> Result<Startup> {
 /// `None` for `--dev`.
 fn resolve_serving_config(
     cli: &Cli,
-) -> Result<(Option<WeatherConfig>, String, RefreshInterval, RenderConfig)> {
+) -> Result<(
+    Option<WeatherConfig>,
+    String,
+    RefreshInterval,
+    RenderConfig,
+    Layout,
+)> {
     match (&cli.config, cli.dev) {
         (Some(path), _) => {
-            let (weather, base, interval, render) = load_byos_config(path)?;
-            Ok((Some(weather), base, interval, render))
+            let (weather, base, interval, render, layout) =
+                load_byos_config(path)?;
+            Ok((Some(weather), base, interval, render, layout))
         }
         (None, true) => {
             tracing::warn!(
@@ -172,6 +191,7 @@ fn resolve_serving_config(
                 "http://localhost:3100/images".to_owned(),
                 RefreshInterval::from_secs(900),
                 RenderConfig::default(),
+                Layout::embedded_default().clone(),
             ))
         }
         (None, false) => {
@@ -185,7 +205,7 @@ fn resolve_serving_config(
 
 fn load_byos_config(
     path: &Path,
-) -> Result<(WeatherConfig, String, RefreshInterval, RenderConfig)> {
+) -> Result<(WeatherConfig, String, RefreshInterval, RenderConfig, Layout)> {
     let cfg = Config::load(path)
         .with_context(|| format!("loading config from {}", path.display()))?;
     let TrmnlConfig::Byos(byos) = &cfg.trmnl else {
@@ -198,8 +218,9 @@ fn load_byos_config(
     let base = byos.public_image_base.clone();
     let interval = RefreshInterval::from_secs(byos.default_refresh_rate_s);
     let render = cfg.render.clone();
+    let layout = cfg.dashboard_layout().clone();
     let Config { weather, .. } = cfg;
-    Ok((weather, base, interval, render))
+    Ok((weather, base, interval, render, layout))
 }
 
 fn seed_placeholder(
@@ -231,14 +252,18 @@ fn spawn_publish_loop(
     trmnl: TrmnlState,
     refresh_interval: RefreshInterval,
     render_cfg: RenderConfig,
+    dashboard_layout: Layout,
 ) -> Result<()> {
     let provider = build_provider(weather_cfg)?;
     let publish_loop = PublishLoop::new(
         provider,
         Renderer::with_default_fonts(),
-        render_cfg,
         trmnl,
-        refresh_interval.as_duration(),
+        PublishLoopConfig {
+            render_cfg,
+            layout: dashboard_layout,
+            interval: refresh_interval.as_duration(),
+        },
     );
     supervise("publish_loop", publish_loop.run());
     tracing::info!(

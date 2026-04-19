@@ -19,13 +19,33 @@
 use serde::Deserialize;
 use thiserror::Error;
 
-/// Top-level layout document. Parsed from `layout.toml`.
+/// Top-level layout document. Embedded in the main
+/// config under `[dashboard]`, or supplied standalone
+/// via `Layout::embedded_default`.
+///
+/// The TOML shape places `canvas` alongside the root
+/// node's fields (via `#[serde(flatten)]`) so the
+/// `[dashboard]` section reads without a superfluous
+/// `[dashboard.root]` wrapper:
+///
+/// ```toml
+/// [dashboard]
+/// canvas = { width = 800, height = 480 }
+/// split = "vertical"
+/// divider = true
+///
+/// [[dashboard.children]]
+/// size = 50
+/// # ...
+/// ```
 #[derive(Debug, Clone, Deserialize)]
 pub struct Layout {
     /// Canvas dimensions in pixels.
     pub canvas: Canvas,
-    /// Root node of the layout tree.
-    pub layout: Node,
+    /// Root node of the layout tree (either a split or
+    /// a bare widget).
+    #[serde(flatten)]
+    pub root: Node,
 }
 
 /// Canvas dimensions.
@@ -287,7 +307,30 @@ impl Layout {
             w: self.canvas.width,
             h: self.canvas.height,
         };
-        resolve_node(&self.layout, canvas)
+        resolve_node(&self.root, canvas)
+    }
+
+    /// Embedded default layout (the TOML at
+    /// `crates/bellwether/assets/layout.toml`). Used
+    /// when the main config has no `[dashboard]` section.
+    ///
+    /// Parsed **and resolved** once on first use: if
+    /// the embedded file ever ceases to parse or
+    /// resolve, the first call panics at startup
+    /// instead of letting an invalid `Layout`
+    /// circulate into the renderer.
+    #[must_use]
+    pub fn embedded_default() -> &'static Self {
+        static LAYOUT: std::sync::OnceLock<Layout> = std::sync::OnceLock::new();
+        LAYOUT.get_or_init(|| {
+            let src = include_str!("../../../assets/layout.toml");
+            let layout: Layout = toml::from_str(src)
+                .expect("embedded layout.toml must parse successfully");
+            layout
+                .resolve()
+                .expect("embedded layout.toml must resolve successfully");
+            layout
+        })
     }
 }
 

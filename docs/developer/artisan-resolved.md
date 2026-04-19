@@ -6,6 +6,30 @@ findings.
 
 ---
 
+## 2026-04-19 (feat — v0.15.0 inline `[dashboard]` layout)
+
+### AQ-118 — Fully-qualified `crate::dashboard::layout::Layout` repeated across callers
+**Category:** API design / readability
+**Description:** `Layout` was referenced by its 35-char fully-qualified path in `publish/mod.rs` (struct field, `new` signature) and `bellwether-web/src/main.rs` (`Startup`, the two tuple-returning fns, `spawn_publish_loop`), forcing awkward line breaks and hurting readability.
+**Fix:** Added `use crate::dashboard::layout::Layout;` in `publish/mod.rs` and `use bellwether::dashboard::layout::Layout;` in `main.rs`. All the tuple returns collapsed. `crates/bellwether/src/publish/mod.rs`, `crates/bellwether-web/src/main.rs`.
+
+### AQ-119 — `unwrap_or_else` closure wrap
+**Category:** Style
+**Description:** `dashboard_layout()` used `unwrap_or_else(|| Layout::embedded_default())` — clippy's `redundant_closure` would normally ask for `unwrap_or_else(Layout::embedded_default)`.
+**Resolution:** Not applicable — `embedded_default` returns `&'static Layout`, whereas `Option::unwrap_or_else<F: FnOnce() -> T>` wants the return type to be `&Self::Item` (i.e., `&Layout` bound to `self`'s lifetime). Fn-pointer coercion doesn't downcast the return lifetime; the closure form is required. Added a comment at the call site documenting why. `crates/bellwether/src/config/mod.rs`.
+
+### AQ-120 — `PublishLoop::new` took six positional arguments
+**Category:** API design
+**Description:** After AQ-115's `Layout` addition the constructor had `(provider, renderer, render_cfg, layout, sink, interval)` — six positional args of heterogeneous types, right at clippy's `too_many_arguments` threshold.
+**Fix:** Extracted `PublishLoopConfig { render_cfg, layout, interval }`; `PublishLoop::new(provider, renderer, sink, cfg)` keeps the three dependency handles positional. Tests use `loop_cfg(interval)` / `loop_cfg_with_render(...)` helpers. `crates/bellwether/src/publish/mod.rs`.
+
+### AQ-121 — `[dashboard.root]` wrapper was an unneeded layer of TOML nesting
+**Category:** API design / ergonomics
+**Description:** The `[dashboard]` / `[dashboard.root]` split forced readers to learn that "root" was a wrapper rather than a widget, buying nothing — `Layout` only has two fields, canvas and the root node. Same issue for standalone `assets/layout.toml` needing a `[root]` prefix.
+**Fix:** `Layout.root` now uses `#[serde(flatten)]`, so the root-node's fields (`split`, `divider`, `children`, …) sit alongside `canvas` directly under `[dashboard]` in the main config, and at top-level in `assets/layout.toml`. Three config/layout tests and the embedded asset updated. `crates/bellwether/src/dashboard/layout/mod.rs`, `assets/layout.toml`, `src/config/mod.rs`, `src/dashboard/layout/tests.rs`.
+
+---
+
 ## 2026-04-19 (feat — v0.14.0 configurable widget layout)
 
 ### AQ-115 — `Child` invariant was runtime-checked, not type-checked

@@ -177,15 +177,37 @@ fn test_render_cfg() -> RenderConfig {
     }
 }
 
+fn test_layout() -> crate::dashboard::layout::Layout {
+    crate::dashboard::layout::Layout::embedded_default().clone()
+}
+
+fn loop_cfg(interval: Duration) -> PublishLoopConfig {
+    PublishLoopConfig {
+        render_cfg: test_render_cfg(),
+        layout: test_layout(),
+        interval,
+    }
+}
+
+fn loop_cfg_with_render(
+    render_cfg: RenderConfig,
+    interval: Duration,
+) -> PublishLoopConfig {
+    PublishLoopConfig {
+        render_cfg,
+        layout: test_layout(),
+        interval,
+    }
+}
+
 #[tokio::test]
 async fn next_filename_is_monotonic_and_url_safe() {
     let sink = MockSink::new();
     let loop_ = PublishLoop::new(
         FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
-        test_render_cfg(),
         sink,
-        Duration::from_secs(60),
+        loop_cfg(Duration::from_secs(60)),
     );
     let a = loop_.next_filename();
     let b = loop_.next_filename();
@@ -211,9 +233,8 @@ async fn tick_once_publishes_a_bmp_to_the_sink() {
     let loop_ = PublishLoop::new(
         FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
-        test_render_cfg(),
         sink.clone(),
-        Duration::from_secs(60),
+        loop_cfg(Duration::from_secs(60)),
     );
     let filename = loop_.tick_once().await.unwrap();
     let calls = sink.record();
@@ -228,9 +249,8 @@ async fn tick_once_filenames_are_strictly_increasing() {
     let loop_ = PublishLoop::new(
         FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
-        test_render_cfg(),
         sink.clone(),
-        Duration::from_secs(60),
+        loop_cfg(Duration::from_secs(60)),
     );
     let a = loop_.tick_once().await.unwrap();
     let b = loop_.tick_once().await.unwrap();
@@ -245,9 +265,8 @@ async fn tick_once_propagates_sink_errors() {
     let loop_ = PublishLoop::new(
         FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
-        test_render_cfg(),
         sink,
-        Duration::from_secs(60),
+        loop_cfg(Duration::from_secs(60)),
     );
     let err = loop_.tick_once().await.unwrap_err();
     let PublishError::Sink(inner) = err else {
@@ -262,9 +281,8 @@ async fn tick_once_surfaces_provider_errors() {
     let loop_ = PublishLoop::new(
         FakeProvider::provider_error("nope"),
         Renderer::new(),
-        test_render_cfg(),
         sink.clone(),
-        Duration::from_secs(60),
+        loop_cfg(Duration::from_secs(60)),
     );
     let err = loop_.tick_once().await.unwrap_err();
     assert!(
@@ -285,9 +303,8 @@ async fn run_recovers_after_transient_sink_error() {
     let loop_ = PublishLoop::new(
         FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
-        test_render_cfg(),
         sink.clone(),
-        Duration::from_millis(5),
+        loop_cfg(Duration::from_millis(5)),
     );
     let handle = tokio::spawn(loop_.run());
     tokio::time::sleep(Duration::from_millis(80)).await;
@@ -336,9 +353,8 @@ async fn tick_once_renders_plausible_trmnl_og_bmp() {
     let loop_ = PublishLoop::new(
         FakeProvider::ok(rich_snapshot_at(start)),
         Renderer::with_default_fonts(),
-        trmnl_og_render_cfg(),
         capture.clone(),
-        Duration::from_secs(60),
+        loop_cfg_with_render(trmnl_og_render_cfg(), Duration::from_secs(60)),
     );
 
     let filename = loop_.tick_once().await.unwrap();

@@ -281,6 +281,62 @@ async fn image_route_returns_404_for_missing_filename() {
 }
 
 #[tokio::test]
+async fn preview_returns_latest_bmp_bytes_without_token() {
+    // `/preview.bmp` must be reachable from an
+    // unauthenticated browser on the landing page even
+    // when an access token is configured, and must
+    // return the bytes of the most recently rendered
+    // image so the preview updates between renders.
+    let state = test_state().with_access_token("s3cret");
+    state
+        .put_image("old.bmp".into(), Bytes::from_static(b"old"))
+        .unwrap();
+    state
+        .put_image("new.bmp".into(), Bytes::from_static(b"BMnew"))
+        .unwrap();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/preview.bmp")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers().get(header::CONTENT_TYPE).unwrap(),
+        "image/bmp",
+    );
+    assert_eq!(
+        resp.headers().get(header::CACHE_CONTROL).unwrap(),
+        "no-store",
+    );
+    assert_eq!(&body_bytes(resp).await[..], b"BMnew");
+}
+
+#[tokio::test]
+async fn preview_returns_404_when_no_image_rendered_yet() {
+    // Chosen over 503 so the landing page's `<img>`
+    // `onerror` handler fires immediately instead of
+    // the browser treating the response as transient
+    // and retrying.
+    let app = router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/preview.bmp")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert!(resp.headers().get(header::CACHE_CONTROL).is_none());
+}
+
+#[tokio::test]
 async fn log_accepts_known_fields() {
     let app = router(test_state());
     let body = serde_json::json!({

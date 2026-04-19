@@ -111,11 +111,14 @@ async fn landing_page() -> Html<String> {
     <td>TRMNL device log ingest.</td></tr>\n\
 <tr><td><code>GET /images/&lt;filename&gt;</code></td>\n\
     <td>Rendered BMPs served to the TRMNL device.</td></tr>\n\
+<tr><td><code>GET /preview.bmp</code></td>\n\
+    <td>Latest rendered BMP (used by the preview \
+        below).</td></tr>\n\
 </table>\n\
 \n\
 <h2>Latest rendered dashboard</h2>\n\
 <div class=\"preview\">\n\
-  <img src=\"/api/display?preview=1\" alt=\"latest \
+  <img src=\"/preview.bmp\" alt=\"latest \
        rendered dashboard\"\n\
        onerror=\"this.replaceWith(\
                   Object.assign(\

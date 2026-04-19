@@ -51,7 +51,9 @@ use axum::routing::{get, post};
 use bellwether::publish::{DeviceTelemetry, ImageSink, SinkError};
 use serde::{Serialize, Serializer};
 
-use handlers::{display, log, require_access_token, serve_image, setup};
+use handlers::{
+    display, log, preview, require_access_token, serve_image, setup,
+};
 
 /// Maximum request body size for `POST /api/log`.
 pub const MAX_LOG_BODY_BYTES: usize = 16 * 1024;
@@ -216,6 +218,24 @@ impl ImageStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.latest.clone()
     }
+
+    /// Atomically return the bytes of the latest image.
+    /// Takes the read lock once so readers can't observe
+    /// a `latest` pointer whose bytes are absent — even
+    /// though [`put_image`] preserves `latest` across
+    /// eviction today, keeping the lookup inside a
+    /// single lock makes the invariant local to the
+    /// store instead of something handlers have to
+    /// reason about.
+    #[must_use]
+    pub fn latest_image(&self) -> Option<Bytes> {
+        let inner = self
+            .inner
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let filename = inner.latest.as_deref()?;
+        inner.images.get(filename).cloned()
+    }
 }
 
 /// Refresh interval returned to the device. The wire
@@ -317,6 +337,16 @@ impl TrmnlState {
         self.images.get_image(filename)
     }
 
+    /// Borrow the underlying [`ImageStore`]. Lets
+    /// handlers call the store's atomic accessors (e.g.
+    /// [`ImageStore::latest_image`]) without forcing
+    /// every such accessor to be mirrored as a thin
+    /// delegating method on `TrmnlState`.
+    #[must_use]
+    pub fn images(&self) -> &ImageStore {
+        &self.images
+    }
+
     /// Filename of the most recently inserted image.
     #[must_use]
     pub fn latest_filename(&self) -> Option<String> {
@@ -408,5 +438,6 @@ pub fn router(state: TrmnlState) -> Router {
             require_access_token,
         ))
         .route("/api/setup", get(setup))
+        .route("/preview.bmp", get(preview))
         .with_state(state)
 }

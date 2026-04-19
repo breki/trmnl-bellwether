@@ -7,6 +7,29 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Fix landing-page preview `<img>` (v0.16.1)
+
+    The landing page pointed its preview `<img>` at
+    `/api/display?preview=1`, but `/api/display`
+    returns a JSON manifest (and is gated behind the
+    access token when one is configured) — so the
+    browser always fell through to the "no image
+    yet" fallback. Added an unauthenticated
+    `GET /preview.bmp` that streams the latest
+    rendered BMP directly from the in-memory
+    `ImageStore`, and repointed the `<img>` at it.
+    The new handler uses a single atomic read via
+    `ImageStore::latest_image()` so the composite
+    lock invariant (never advertise a filename whose
+    bytes are absent) stays local to the store, sets
+    `Cache-Control: no-store` so the static URL
+    always fetches the newest render, and returns
+    `404` (not `503`) when no image has been
+    produced yet so the `<img>` onerror handler
+    fires immediately. Logged RT-113 tracking the
+    information-disclosure tradeoff of an
+    unauthenticated preview route.
+
 - Drop Svelte frontend; replace `/` with hand-rolled
   HTML landing page (v0.16.0)
 

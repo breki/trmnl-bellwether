@@ -18,6 +18,19 @@ and this project adheres to
   `/images/*`) and embedding the latest rendered
   dashboard image. Served by `bellwether-web`
   directly, no build step required.
+- `GET /preview.bmp` serves the latest rendered BMP
+  directly (unauthenticated, `Cache-Control:
+  no-store`). Backs the landing-page preview
+  `<img>`.
+
+### Fixed
+
+- Landing-page dashboard preview now actually
+  renders. Previously the `<img>` pointed at
+  `/api/display?preview=1`, which returns a JSON
+  manifest (and 401s when an access token is
+  configured), so the preview always fell through
+  to the "no image yet" fallback.
 
 ### Changed
 

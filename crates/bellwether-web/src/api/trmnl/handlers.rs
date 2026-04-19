@@ -6,12 +6,26 @@
 //! next to their sole callers.
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use bellwether::publish::DeviceTelemetry;
 use serde::Serialize;
+
+/// Build a 200 BMP response with the canonical
+/// `Content-Type`. Kept in one place so `serve_image`
+/// and `preview` can't drift if the response shape
+/// grows new headers (`ETag`, `Content-Length`, etc.).
+fn bmp_response(bytes: Bytes) -> Response {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, HeaderValue::from_static("image/bmp"))],
+        bytes,
+    )
+        .into_response()
+}
 
 use super::{RefreshInterval, TrmnlState};
 
@@ -177,14 +191,30 @@ pub async fn serve_image(
     Path(filename): Path<String>,
 ) -> Response {
     match state.get_image(&filename) {
-        Some(bytes) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, HeaderValue::from_static("image/bmp"))],
-            bytes,
-        )
-            .into_response(),
+        Some(bytes) => bmp_response(bytes),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// Handler: serve the most recently rendered BMP
+/// without requiring an access token. Used by the
+/// landing page so an operator can see the current
+/// dashboard in a browser even when the TRMNL
+/// endpoints are token-gated. Returns `404` when no
+/// image has been rendered yet (so the `<img>`
+/// onerror handler fires immediately instead of the
+/// browser treating `503` as a transient error worth
+/// retrying). Sets `Cache-Control: no-store` so the
+/// static `/preview.bmp` URL always refreshes to the
+/// latest render.
+pub async fn preview(State(state): State<TrmnlState>) -> Response {
+    let Some(bytes) = state.images().latest_image() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut resp = bmp_response(bytes);
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    resp
 }
 
 /// Known fields the TRMNL OG firmware sends in its

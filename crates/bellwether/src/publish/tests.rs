@@ -380,8 +380,9 @@ async fn generate_dashboard_sample_bmp() {
         now,
         telemetry: DeviceTelemetry::default(),
     };
+    let now_local = ctx.now.with_timezone(&ctx.tz).time();
     let model = dashboard::build_model(&forecast, ctx);
-    let svg = dashboard::build_svg(&model);
+    let svg = dashboard::build_svg(&model, now_local);
     let bmp = Renderer::with_default_fonts()
         .render_to_bmp(&svg, &cfg)
         .expect("render");

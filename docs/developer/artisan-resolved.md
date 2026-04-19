@@ -6,6 +6,61 @@ findings.
 
 ---
 
+## 2026-04-18 (feat — v0.11.0 dashboard SVG rewrite)
+
+### AQ-091 — `battery_indicator` hand-rolled `<text>` instead of using the shared `text()` helper
+**Category:** Abstraction boundary
+**Description:** The new `text()` helper was introduced specifically to consolidate every `<text>`-opening-tag boilerplate into one place — but `battery_indicator` kept its own inline `format!("<text x= y= font-size= text-anchor= fill=>… </text>")` arms, ~18 lines of duplication against the freshly-introduced invariant.
+**Resolution:** Replaced the inline arms with a single `text()` call, computing the label content into a `String` first so both branches share the positional arguments.
+
+### AQ-092 — Duplicated 3-column grid centre array
+**Category:** Code quality
+**Description:** `[133_u32, 400_u32, 667_u32]` appeared as a local in both `meteo_band` and `forecast_band`. Drift between the two would silently mis-align the cells vertically.
+**Resolution:** Hoisted to a module const `TRIPLE_COLUMN_CENTRES`. Both bands reference it directly; any future geometry change updates one place.
+
+### AQ-093 — `day_extreme_celsius` took a function pointer with a correlated `f64` identity
+**Category:** Type safety
+**Description:** The shared min/max helper took
+`fn(f64, f64) -> f64` for the reducer and a separate
+`f64` for the fold identity. Nothing prevented
+`day_extreme_celsius(indices, temps, f64::INFINITY,
+f64::max)` — a silently-wrong fold returning
+`INFINITY`.
+**Resolution:** Introduced a private `Extreme { High,
+Low }` enum with `identity(self) -> f64` and
+`reduce(self, acc, x) -> f64` methods. The two
+values are coupled at the type level, and
+`day_high_celsius`/`day_low_celsius` each pass a
+single variant.
+
+### AQ-094 — `battery_pct: u8` accepted 101..=255
+**Category:** API design / documentation
+**Description:** `battery_indicator` accepted any
+`u8` without a type-level invariant that it sat in
+`0..=100`. The silent `pct.min(100)` clamp hid a
+hypothetical broken upstream.
+**Resolution:** Added `debug_assert!(pct <= 100)` in
+`battery_fill_rect` so a broken path surfaces in
+tests, plus an explicit comment that upstream
+`battery_voltage_to_pct` guarantees the range. A
+full `Percent(u8)` newtype would be more churn than
+the one-call-site invariant warrants; flagged for
+revisit if telemetry grows additional percent-typed
+fields.
+
+### AQ-095 — Fragile `x="150"` locator in current-panel-collapse test
+**Category:** Test quality
+**Description:** The test for "current panel
+collapses to placeholder" asserted
+`svg.contains("x=\"150\"")`. It passes
+coincidentally today (that x is unique in the
+current layout), but any future element that drifts
+to x=150 would make the test a false-positive.
+**Resolution:** Rewrote the assertion to look for
+the literal "No current reading" string that the
+new placeholder emits; the locator is now the
+intent rather than a byte-offset coincidence.
+
 ## 2026-04-17 (feat — v0.10.0 dashboard data-model groundwork)
 
 ### AQ-086 — `model.rs` grew to 912 lines and held 5 pub structs

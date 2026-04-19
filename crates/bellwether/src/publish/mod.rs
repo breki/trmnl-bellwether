@@ -184,8 +184,9 @@ impl<S: ImageSink> PublishLoop<S> {
             now: Utc::now(),
             telemetry: self.sink.latest_telemetry(),
         };
+        let now_local = ctx.now.with_timezone(&ctx.tz).time();
         let model = dashboard::build_model(&forecast, ctx);
-        let svg = dashboard::build_svg(&model);
+        let svg = dashboard::build_svg(&model, now_local);
         let bmp = self.renderer.render_to_bmp(&svg, &self.render_cfg)?;
         let filename = self.next_filename();
         self.sink

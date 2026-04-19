@@ -5,7 +5,50 @@ reverse chronological order.
 
 ---
 
-### 2026-04-17
+### 2026-04-18
+
+- Dense 5-band dashboard layout (v0.11.0)
+
+    Rewrote `dashboard::svg` to consume the v0.10
+    data model and render the dense weather-app-style
+    layout the user mocked up: branded header with
+    TRMNL / "Weather Report" / clock / battery;
+    current-conditions band with icon + big temp +
+    condition + feels-like; three-cell meteorology
+    strip (wind + gust + humidity); forecast row of
+    three tiles (weekday + icon + H/L); footer with
+    today's high/low and sunrise/sunset. All text
+    goes through one shared `text()` renderer so the
+    opening-tag boilerplate lives in exactly one
+    place, and the 3-column grid centres are a
+    module const reused by the meteo and forecast
+    bands.
+
+    Missing-data handling matches the "never show
+    fake numbers" project convention: em-dash for
+    every optional field when the underlying data is
+    `None`, a neutral "No current reading" label
+    when the current-conditions panel collapses, and
+    "Wind calm" instead of a fake `"Wind N 0 km/h"`
+    for calm conditions. Forecast tile placeholders
+    still render their weekday header so an operator
+    can see *which* day is missing — a new
+    `day_weekdays: [Weekday; 3]` field on
+    `DashboardModel` keeps the layout labels
+    independent of the data rows.
+
+    `build_svg` signature changed: now takes
+    `(&DashboardModel, now_local: NaiveTime)` — the
+    clock input stays out of the model so a
+    rendered model doesn't go stale the instant the
+    caller holds it. `publish::tick_once` derives
+    `now_local` from the existing `ctx.now` +
+    `ctx.tz`.
+
+    Moved `svg.rs` to `svg/mod.rs` + `svg/tests.rs`
+    (matching the `model/` split convention so
+    neither file is over 500 lines of production
+    code).
 
 - Dashboard model groundwork for redesign (v0.10.0)
 

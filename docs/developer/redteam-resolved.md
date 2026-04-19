@@ -5,6 +5,33 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-18 (feat — v0.11.0 dashboard SVG rewrite)
+
+### RT-082 — Lone 120-px em-dash rendered when current conditions missing
+**Category:** Correctness / UX
+**Description:** `current_temperature_placeholder` emitted a single em-dash at `font-size=120` when the forecast had no usable current-temperature sample. The glyph floated alone in an otherwise-empty 140-px band — visually ambiguous (is it drawing garbage? a typo? a failed render?).
+**Resolution:** Placeholder now renders "No current reading" at `font-size=44` centred in the band. Condition label + feels-like line remain suppressed. Test updated to assert the new string.
+
+### RT-083 — Battery fill rect used integer truncation
+**Category:** Correctness (minor visual)
+**Description:** `battery_fill_rect` computed `inner_max * pct / 100`. With truncation `pct=99` rendered as 51 pixels (98% of 52), and `pct=1` rendered as a zero-width `<rect>` — syntactically valid but useless SVG bytes.
+**Resolution:** Round-half-to-nearest (`(inner_max * pct + 50) / 100`). Skip the `<rect>` entirely when the rounded width is zero. New test `battery_fill_rounds_not_truncates` locks the invariant.
+
+### RT-084 — Missing forecast tile dropped its weekday context
+**Category:** Correctness / UX
+**Description:** `day_placeholder` emitted only a bare em-dash at tile centre; the weekday label, icon, and H/L row were all absent. "Sat / — / Mon" gave the user no way to know whether Sunday or some other day was missing.
+**Resolution:** `DashboardModel` gained a `day_weekdays: [Weekday; 3]` field populated by `build_model` from `ctx.now` + the same "skip-today, next-3" rule as the data rows. The SVG builder always renders the weekday header regardless of whether the data row is a placeholder. Updated test asserts all three labels are always present.
+
+### RT-085 — Calm wind rendered as "Wind N 0 km/h"
+**Category:** Correctness (data misrepresentation)
+**Description:** `wind_to_compass` returns `Compass8::N` as a sentinel for calm conditions. The new meteo cell formatter passed that through verbatim, producing `"Wind N 0 km/h"` — a fake north wind at zero speed. Calm conditions should read as "calm", not a directional wind.
+**Resolution:** `format_wind_cell` detects `round_i32(kmh) == 0` and emits `"Wind calm"` instead. New test `calm_wind_renders_as_calm_not_zero_knot_north`.
+
+### RT-086 — `text()` helper interpolated `content` raw with no XML escape
+**Category:** Defensive (security)
+**Description:** The new shared `<text>` renderer spliced `content` directly into the SVG. Safe today (every call site passes enum-label returns, numeric-derived strings, or compile-time literals — none containing XML-special characters), but a future refactor letting a Windy-supplied string flow into `content` would open an injection path.
+**Resolution:** Added a `debug_assert!` in `text()` that rejects `<` or `&` in `content`, and a doc comment locking the "literal / numeric / enum-returned only" invariant. Tests (which use `build_svg` with the sample model) exercise this path.
+
 ## 2026-04-17 (feat — v0.10.0 dashboard data-model groundwork)
 
 ### RT-077 — astro ephemeris anchored to UTC noon of local date

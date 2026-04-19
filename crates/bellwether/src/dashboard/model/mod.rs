@@ -94,8 +94,18 @@ pub struct DashboardModel {
     /// bottom of the layout. Positions are fixed
     /// (index 0 = leftmost tile). An entry is `None`
     /// when the forecast didn't cover that day with
-    /// at least [`MIN_SAMPLES_PER_DAY`] samples.
+    /// at least [`MIN_SAMPLES_PER_DAY`] samples — the
+    /// SVG builder renders a placeholder using the
+    /// corresponding [`Self::day_weekdays`] entry so
+    /// the user can see *which* day is missing.
     pub days: [Option<DaySummary>; DAY_TILE_COUNT],
+    /// Weekday labels for each forecast tile,
+    /// independent of whether the tile itself has
+    /// data. Always populated from `ctx.now` by
+    /// [`build_model`] so a missing forecast tile
+    /// still carries a "Sat", "Sun", … label into
+    /// the SVG.
+    pub day_weekdays: [Weekday; DAY_TILE_COUNT],
     /// Battery percentage derived from the most
     /// recent device telemetry. `None` when no
     /// device has posted yet or the last post didn't
@@ -200,6 +210,7 @@ pub fn build_model(forecast: &Forecast, ctx: ModelContext) -> DashboardModel {
     let current = build_current(forecast, ctx.now);
     let today = build_today(forecast, ctx);
     let days = build_days(forecast, ctx.tz, ctx.now);
+    let day_weekdays = forecast_tile_weekdays(ctx.tz, ctx.now);
     let battery_pct = ctx
         .telemetry
         .battery_voltage
@@ -208,8 +219,32 @@ pub fn build_model(forecast: &Forecast, ctx: ModelContext) -> DashboardModel {
         current,
         today,
         days,
+        day_weekdays,
         battery_pct,
     }
+}
+
+/// Compute the weekday labels for the three forecast
+/// tiles, independent of whether `forecast` has data
+/// for each target date. Follows the same
+/// "skip-today, next 3" rule as [`build_days`]. Used
+/// so a missing day tile still renders its weekday
+/// header in the SVG.
+fn forecast_tile_weekdays(
+    tz: Tz,
+    now: DateTime<Utc>,
+) -> [Weekday; DAY_TILE_COUNT] {
+    let today_local = now.with_timezone(&tz).date_naive();
+    let mut out = [Weekday::Mon; DAY_TILE_COUNT];
+    for (offset, slot) in out.iter_mut().enumerate() {
+        // `offset + 1` gives "skip today, then next 3".
+        if let Some(date) =
+            today_local.checked_add_days(Days::new(offset as u64 + 1))
+        {
+            *slot = date.weekday();
+        }
+    }
+    out
 }
 
 fn warn_on_missing_condition_series(forecast: &Forecast) {
@@ -423,22 +458,57 @@ fn day_high_celsius(
     indices: &[usize],
     temps: Option<&[Option<f64>]>,
 ) -> Option<i32> {
-    let high_k = indices
-        .iter()
-        .filter_map(|&i| temps?.get(i).copied().flatten())
-        .fold(f64::NEG_INFINITY, f64::max);
-    kelvin_to_rounded_celsius(high_k)
+    day_extreme_celsius(indices, temps, Extreme::High)
 }
 
 fn day_low_celsius(
     indices: &[usize],
     temps: Option<&[Option<f64>]>,
 ) -> Option<i32> {
-    let low_k = indices
+    day_extreme_celsius(indices, temps, Extreme::Low)
+}
+
+/// Which end of a day's temperature range to pick.
+/// The identity element for the fold (`-∞` for max,
+/// `+∞` for min) and the reducer are coupled at the
+/// type level rather than accepting two correlated
+/// `f64`s from the caller.
+#[derive(Clone, Copy)]
+enum Extreme {
+    High,
+    Low,
+}
+
+impl Extreme {
+    fn identity(self) -> f64 {
+        match self {
+            Self::High => f64::NEG_INFINITY,
+            Self::Low => f64::INFINITY,
+        }
+    }
+
+    fn reduce(self, acc: f64, x: f64) -> f64 {
+        match self {
+            Self::High => acc.max(x),
+            Self::Low => acc.min(x),
+        }
+    }
+}
+
+/// Shared implementation for `day_high_celsius` /
+/// `day_low_celsius`. Filters out early when `temps`
+/// is `None` so we don't iterate indices pointlessly.
+fn day_extreme_celsius(
+    indices: &[usize],
+    temps: Option<&[Option<f64>]>,
+    which: Extreme,
+) -> Option<i32> {
+    let series = temps?;
+    let extreme_k = indices
         .iter()
-        .filter_map(|&i| temps?.get(i).copied().flatten())
-        .fold(f64::INFINITY, f64::min);
-    kelvin_to_rounded_celsius(low_k)
+        .filter_map(|&i| series.get(i).copied().flatten())
+        .fold(which.identity(), |acc, x| which.reduce(acc, x));
+    kelvin_to_rounded_celsius(extreme_k)
 }
 
 fn kelvin_to_rounded_celsius(k: f64) -> Option<i32> {

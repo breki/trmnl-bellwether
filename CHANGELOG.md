@@ -10,6 +10,42 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-04-18
+
+### Added
+
+- Dense 5-band dashboard SVG layout: header (brand +
+  title + clock + battery indicator), current
+  conditions (icon + big temp + condition word +
+  feels-like), 3-cell meteorology strip (wind + gust
+  + humidity), 3-tile forecast row (weekday + icon +
+  H/L), footer (today's H/L + sunrise + sunset).
+- `dashboard::DashboardModel.day_weekdays:
+  [Weekday; 3]` — weekday labels for each forecast
+  tile, populated from `ctx.now` regardless of
+  whether the tile's data row is `None`. Keeps the
+  layout header visible when a tile's data is
+  missing so the user can see which day is absent.
+
+### Changed
+
+- **Breaking:** `dashboard::build_svg` signature is
+  now `(model, now_local: NaiveTime) -> String`.
+  Was `(model) -> String`. The clock input stays
+  out of the model so a rendered model doesn't go
+  stale the instant it's held.
+- Calm wind conditions (`round(wind_kmh) == 0`) now
+  render as `"Wind calm"` instead of `"Wind N 0
+  km/h"` (the previous output, where `Compass8::N`
+  was a calm-sentinel leaking into the label).
+- Missing current conditions render a neutral "No
+  current reading" label centred in the band
+  instead of a lone 120-px em-dash.
+- Battery fill width is rounded rather than
+  truncated (`pct=99` now renders as 99 % of the
+  inner width, not 98 %); zero-width fill rects are
+  elided.
+
 ## [0.10.0] - 2026-04-17
 
 ### Added

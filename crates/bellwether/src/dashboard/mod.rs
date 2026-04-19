@@ -23,6 +23,7 @@ pub mod astro;
 pub mod classify;
 pub mod feels_like;
 pub mod icons;
+pub mod layout;
 pub mod model;
 pub mod svg;
 

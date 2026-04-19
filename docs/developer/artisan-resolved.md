@@ -6,6 +6,25 @@ findings.
 
 ---
 
+## 2026-04-19 (feat — v0.14.0 configurable widget layout)
+
+### AQ-115 — `Child` invariant was runtime-checked, not type-checked
+**Category:** Type safety
+**Description:** `Child { size: Option<u32>, flex: Option<u32> }` plus a runtime `sizing()` producing `MissingSizing`/`BothSizings` errors; two `LayoutError` variants existed only because the type allowed states the domain forbade.
+**Fix:** `Child` now stores `sizing: Sizing` directly; a private `ChildRaw` + `#[serde(try_from = "ChildRaw")]` surfaces the invariant at deserialization time, rejecting missing/both/`flex=0` as TOML parse errors. `MissingSizing` and `BothSizings` variants removed. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+### AQ-116 — `compute_bounds(&Node, Rect)` forced every caller to rederive the canvas rect
+**Category:** API design
+**Description:** Free function took a `Node` + synthetic `Rect`; every call site rewrote the same `Rect { x: 0, y: 0, w: canvas.width, h: canvas.height }` adapter.
+**Fix:** Added `Layout::resolve(&self) -> Result<Resolved<'_>, LayoutError>` as the primary entry point. `resolve_node` remains (renamed from `compute_bounds`) as a lower-level escape hatch for tests exercising sub-trees. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+### AQ-117 — `svg/mod.rs` module doc described the old fixed 5-band design
+**Category:** Documentation
+**Description:** Module header listed "Header `0..=50`, Current `50..=190`, Meteo `190..=240`, Forecast `240..=430`, Footer `430..=480`" — coordinates that no longer reflect the data-driven layout.
+**Fix:** Rewrote the module doc to describe the layout.toml-driven pipeline, bounds-relative widget positioning, and the layout / rendering separation. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+---
+
 ## 2026-04-19 (feat — v0.13.0 RPi deployment + `/api/setup`)
 
 ### AQ-107 — `/api/setup` returned bare `Response` instead of typed `Result<Json<_>, StatusCode>`

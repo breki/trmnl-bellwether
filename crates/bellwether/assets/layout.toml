@@ -1,0 +1,74 @@
+# Default dashboard layout.
+#
+# Parsed into `dashboard::layout::Layout` via serde and
+# resolved by `Layout::resolve` into widget placements
+# and divider placements the SVG builder dispatches on.
+#
+# Sizing: each child declares either `size = N` (fixed
+# pixels on the parent split's main axis) or `flex = N`
+# (share of the remaining space after fixed children
+# and separators are subtracted). `size` and `flex` are
+# mutually exclusive; `flex` must be at least 1.
+#
+# Dividers: set `divider = true` on a split to reserve
+# 2 px between adjacent children and emit a line there.
+# The default dashboard draws horizontal band-dividers
+# at the top level and vertical column-dividers inside
+# the meteorology strip.
+
+canvas = { width = 800, height = 480 }
+
+[layout]
+split = "vertical"
+divider = true
+
+# Header band: brand, title, clock, battery.
+# 50 px tall — fits the 28 px header text plus padding.
+[[layout.children]]
+size = 50
+split = "horizontal"
+children = [
+    { size = 200, widget = "brand" },
+    { size = 400, widget = "header-title", text = "Weather Report" },
+    { size = 50,  widget = "clock" },
+    { size = 150, widget = "battery" },
+]
+
+# Current-conditions band: icon + big temperature +
+# condition label + feels-like. Reduced from 140 to
+# 132 px to absorb the 8 px of vertical dividers
+# introduced at the top level.
+[[layout.children]]
+size = 132
+widget = "current-conditions"
+
+# Meteorology strip: wind, gust, humidity.
+[[layout.children]]
+size = 50
+split = "horizontal"
+divider = true
+children = [
+    { flex = 1, widget = "wind" },
+    { flex = 1, widget = "gust" },
+    { flex = 1, widget = "humidity" },
+]
+
+# Forecast row: three day tiles.
+[[layout.children]]
+size = 190
+split = "horizontal"
+children = [
+    { flex = 1, widget = "forecast-day", offset = 0 },
+    { flex = 1, widget = "forecast-day", offset = 1 },
+    { flex = 1, widget = "forecast-day", offset = 2 },
+]
+
+# Footer: today high/low, sunrise, sunset.
+[[layout.children]]
+size = 50
+split = "horizontal"
+children = [
+    { size = 380, widget = "today-hi-lo" },
+    { size = 210, widget = "sunrise" },
+    { size = 210, widget = "sunset" },
+]

@@ -5,6 +5,55 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-19 (feat — v0.14.0 configurable widget layout)
+
+### RT-100 — `ForecastDay.offset` out-of-range panicked the renderer
+**Category:** Correctness
+**Description:** `render_widget` indexed `ctx.model.days[idx]` / `day_weekdays[idx]` with a `u8` from layout TOML; `offset = 3` or higher panicked with OOB.
+**Fix:** Dispatch now uses `.get(idx)` on both arrays and falls back to `forecast_tile_out_of_range` (em-dash placeholder) for bad offsets. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### RT-101 — `expect("layout is well-formed")` panicked on user layouts
+**Category:** Correctness
+**Description:** `build_svg_with_layout` unconditionally unwrapped `compute_bounds`, so any user TOML triggering `MissingSizing`, `BothSizings`, or `Overflow` crashed the render thread.
+**Fix:** `build_svg_with_layout` now returns `Result<String, LayoutError>`; the panic-free `build_svg` path uses the embedded default, whose success is guarded by a dedicated test (`embedded_layout_parses_and_resolves`). `MissingSizing`/`BothSizings`/`flex = 0` are now parse-time errors (see RT-102) rather than resolve-time ones. `crates/bellwether/src/dashboard/svg/mod.rs`, `layout/mod.rs`.
+
+### RT-102 — XML injection via `HeaderTitle { text }`
+**Category:** Security
+**Description:** `render_header_title` interpolated user-supplied `text` directly into `<text>`; `debug_assert!` in the `text` helper panicked on `<`/`&` in debug, release emitted malformed SVG. Values like `"R&D"` or `"Tom's"` broke the pipeline.
+**Fix:** Added `escape_xml` covering the five predefined entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`); `text()` now escapes its content unconditionally. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### RT-103 — `u32` overflow in layout arithmetic bypassed `Overflow` check
+**Category:** Correctness
+**Description:** `gaps * sep_per_gap`, `fixed_total + sep_total`, and `flex_budget * weight` all used plain `u32` math. Pathological user values (`gap = u32::MAX`, `flex = u32::MAX`) could wrap silently, fooling the `axis_len` guard and producing nonsense layouts or underflow panics downstream.
+**Fix:** All resolver arithmetic is now `u64`-internal with `checked_add` / `checked_mul`, narrowed back to `u32` at the output boundary. New `LayoutError::ArithmeticOverflow` variant. Test `huge_gap_overflow_errors` covers the regression. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+### RT-104 — `section_dividers` scanned flattened placements heuristically
+**Category:** Correctness
+**Description:** Inferred band-top Ys by scanning placement Ys — worked for the 5-band default, silently drew spurious full-width lines for nested horizontal/vertical structures.
+**Fix:** `SplitNode.divider` is now first-class — the resolver emits `PlacedDivider` entries in the reserved 2-px gap, the renderer draws a single line per placement. No heuristic inference. `crates/bellwether/src/dashboard/layout/mod.rs`, `svg/mod.rs`.
+
+### RT-105 — `SplitNode.divider = true` reserved space but never drew the line
+**Category:** Semantics
+**Description:** The `divider` flag consumed 2 px between children but the renderer ignored it; dividers were drawn by an unrelated hardcoded heuristic that checked widget identity (`Wind → Gust`) — data and render diverged.
+**Fix:** Same as RT-104 — `divider` is now the single source of truth. Hardcoded `meteo_column_separators` deleted; the meteo `[[layout.children]]` entry in `assets/layout.toml` sets `divider = true` to get its two vertical column rules.
+
+### RT-106 — Widget Y coordinates hardcoded — "configurable layout" was horizontal-only
+**Category:** Semantics
+**Description:** Clock (y=34), meteo cell (y=222), forecast label/icon/H-L (y=280/300/412/345), footer (y=462), battery (y=14/34) — every widget's vertical placement was a constant tied to the original 5-band heights. Resizing a band in `layout.toml` did nothing vertically.
+**Fix:** Every widget render helper derives its Y from `bounds.y + bounds.h * pct / 100` (or a bounded constant like `BATTERY_LEFT_PAD`). Resizing the current-conditions band from 140 to 132 px in `layout.toml` now correctly moves its widgets with it. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### RT-107 — CHANGELOG `[Unreleased]` entry absent for 0.14.0
+**Category:** Hygiene
+**Description:** Version bumped to 0.14.0 without a corresponding CHANGELOG entry.
+**Fix:** Added `### Added` / `### Changed` bullets under `[Unreleased]` describing the layout system and the `build_svg_with_layout` Result-typed signature change. `CHANGELOG.md`.
+
+### RT-108 — `flex = 0` silently unpainted `flex_budget` pixels
+**Category:** Correctness
+**Description:** A child with `flex = 0` passed the resolver with zero share while still counted in `flex_total`; the last-flex-remainder override caught most cases but the all-zero-weight case leaked budget.
+**Fix:** `flex = 0` is now rejected at TOML parse time in `Child`'s `TryFrom<ChildRaw>`; `Sizing::Flex(u32)` is guaranteed `>= 1`. Test `child_with_flex_zero_fails_to_parse` covers. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+---
+
 ## 2026-04-19 (feat — v0.13.0 RPi deployment + `/api/setup`)
 
 ### RT-094 — Tautological test in deploy.rs never guards against build-dir wipe

@@ -1,89 +1,55 @@
-//! SVG builder for the dense v0.11 dashboard layout.
+//! SVG builder for the dashboard.
 //!
 //! Produces the SVG string that
-//! [`crate::render::Renderer`] turns into a 1-bit
-//! BMP. Pure string templating — every weather-domain
-//! decision happens in [`super::model`] and
-//! [`super::classify`] so this module is only
-//! responsible for placing known quantities on a
-//! fixed canvas.
+//! [`crate::render::Renderer`] turns into a 1-bit BMP.
+//! Layout is data-driven: the tree in
+//! `crates/bellwether/assets/layout.toml` (parsed into
+//! [`Layout`]) is walked by [`Layout::resolve`] to
+//! assign each widget a [`Rect`], and this module
+//! dispatches each placement to a bounds-relative
+//! widget renderer. Weather-domain decisions happen in
+//! [`super::model`] and [`super::classify`]; this
+//! module only places known quantities on the canvas.
 //!
-//! ## Canvas invariant
+//! ## Canvas
 //!
-//! The SVG is always authored at 800 × 480 user units
-//! with `viewBox="0 0 800 480"`. The
+//! Canvas dimensions come from the layout's
+//! `canvas = { width, height }` header; the default
+//! matches the TRMNL OG's 800 × 480 panel. The
 //! [`Renderer`](crate::render::Renderer) pipeline
-//! scales independently in X and Y to the configured
-//! pixmap dimensions; for the default 800 × 480 TRMNL
-//! OG canvas that's a 1:1 pixel map.
+//! scales to the configured pixmap dimensions.
 //!
-//! ## Layout
+//! ## Vertical placement
 //!
-//! Five horizontal bands, separated by 2-px dividers:
-//!
-//! 1. **Header** (`0..=50`) — TRMNL brand, "Weather
-//!    Report" title, clock, battery indicator.
-//! 2. **Current conditions** (`50..=190`) — big
-//!    condition icon on the left, big temperature,
-//!    condition word and "feels like" line on the
-//!    right.
-//! 3. **Meteorology strip** (`190..=240`) — three
-//!    cells: wind, gust, humidity. Missing-data
-//!    cells render the em-dash placeholder.
-//! 4. **Forecast row** (`240..=430`) — three tiles
-//!    for the next three days, each with weekday,
-//!    icon, and "H ..° L ..°" high/low line.
-//! 5. **Footer** (`430..=480`) — today's high/low,
-//!    sunrise, sunset.
-//!
-//! ## Weekday and clock formatting
-//!
-//! Weekdays are rendered via
-//! [`super::model::DaySummary::weekday`] converted by
-//! the private [`weekday_label`] function to a
-//! three-letter English abbreviation. The header clock
-//! is received as a [`chrono::NaiveTime`] passed
-//! separately to [`build_svg`] (not stored on the
-//! model — the forecast data has no clock concept).
+//! Widget Y coordinates are expressed relative to the
+//! widget's assigned bounds, not the canvas. Resizing
+//! a band in `layout.toml` moves the widget with it.
 //!
 //! ## Missing-data convention
 //!
 //! Every optional field renders an em-dash ("—")
 //! placeholder when `None`, never a fake default.
-//! Matches the project's "never show fake numbers"
-//! philosophy.
 
-use std::fmt::Write as _;
+use std::sync::OnceLock;
 
 use chrono::{NaiveTime, Timelike, Weekday};
 
 use super::classify::{Compass8, Condition};
 use super::icons;
-use super::model::{
-    CurrentConditions, DAY_TILE_COUNT, DashboardModel, DaySummary, TodaySummary,
+use super::layout::{
+    Direction, Layout, LayoutError, PlacedDivider, Rect, WidgetKind,
 };
-
-/// Canvas width in user units — matches TRMNL OG.
-const CANVAS_W: u32 = 800;
-/// Canvas height in user units — matches TRMNL OG.
-const CANVAS_H: u32 = 480;
-
-/// Y of the divider between the header and the
-/// current-conditions band.
-const HEADER_DIVIDER_Y: u32 = 50;
-/// Y of the divider between the current-conditions
-/// band and the meteorology strip.
-const CURRENT_DIVIDER_Y: u32 = 190;
-/// Y of the divider between the meteorology strip and
-/// the forecast row.
-const METEO_DIVIDER_Y: u32 = 240;
-/// Y of the divider between the forecast row and the
-/// footer.
-const FORECAST_DIVIDER_Y: u32 = 430;
+use super::model::{
+    CurrentConditions, DashboardModel, DaySummary, TodaySummary,
+};
 
 /// Horizontal padding applied to divider lines so they
 /// don't run edge-to-edge.
 const DIVIDER_INSET_X: u32 = 20;
+
+/// Stroke width for the inter-band and column
+/// divider lines.
+const DIVIDER_STROKE: u32 = 2;
 
 /// Placeholder glyph used wherever a field is missing
 /// — a single em dash. Unicode `—` (U+2014) is covered
@@ -126,27 +92,16 @@ const DAY_HIGH_LOW_PX: u32 = 28;
 /// Font size for the footer items.
 const FOOTER_PX: u32 = 22;
 
-/// Centre X of each column in the 3-column grid
-/// shared by the meteorology strip and the forecast
-/// row. Hoisted so the two bands can't silently drift
-/// out of alignment.
-const TRIPLE_COLUMN_CENTRES: [u32; 3] = [133, 400, 667];
-
 /// Shared renderer for every SVG `<text>` element in
 /// the dashboard. Consolidates the opening-tag
 /// boilerplate so individual cells only carry their
 /// own positional and textual specifics.
 ///
-/// `content` is interpolated **raw** into the SVG.
-/// All call sites today pass compile-time literals,
-/// `&'static str` returns from enum methods
-/// (`Condition::label()`, `Compass8::abbrev()`,
-/// `weekday_label`), or output of numeric formatters
-/// — none of which can carry `<`, `>`, `&` or other
-/// XML-special characters. If a future refactor
-/// lets a user- or forecast-supplied string flow
-/// into `content`, add an XML-escape at the call
-/// site or here.
+/// `content` is **XML-escaped** via [`escape_xml`]
+/// before interpolation, so any caller (including
+/// user-supplied strings from `layout.toml`, e.g. a
+/// [`WidgetKind::HeaderTitle`] with `&` or `<` in its
+/// text) produces well-formed SVG.
 fn text(
     x: u32,
     y: u32,
@@ -155,37 +110,168 @@ fn text(
     extra_attrs: &str,
     content: &str,
 ) -> String {
-    debug_assert!(
-        !content.contains('<') && !content.contains('&'),
-        "SVG text content contains XML-special char: {content:?}",
-    );
     format!(
         "<text x=\"{x}\" y=\"{y}\" font-size=\"{size}\" \
          text-anchor=\"{anchor}\" fill=\"black\"{extra_attrs}>\
          {content}</text>",
+        content = escape_xml(content),
     )
 }
 
-/// Build the dashboard SVG.
+/// Escape the five XML-predefined entities so arbitrary
+/// text (including values pulled from a user-supplied
+/// `layout.toml`) can flow into the SVG without
+/// producing malformed output.
+fn escape_xml(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Context threaded through every widget renderer.
+/// Bundles the weather-domain model and the wall-clock
+/// time so the dispatcher can stay a simple function of
+/// `(widget, bounds, ctx)`.
+struct RenderContext<'a> {
+    model: &'a DashboardModel,
+    now_local: NaiveTime,
+}
+
+/// Build the dashboard SVG using the embedded default
+/// layout.
 ///
 /// `now_local` is the wall-clock time the header
 /// clock should display. Passed separately so the
 /// model stays purely forecast-derived — a rendered
 /// `DashboardModel` doesn't go stale the instant the
 /// caller holds it; only the SVG does.
+///
+/// Panics only if the embedded `layout.toml` is
+/// malformed — a condition guaranteed not to happen at
+/// runtime by
+/// [`tests::embedded_layout_parses_and_resolves`].
 #[must_use]
 pub fn build_svg(model: &DashboardModel, now_local: NaiveTime) -> String {
-    let mut body = String::new();
-    body.push_str(&header_band(now_local, model.battery_pct));
-    body.push_str(&current_band(model.current.as_ref()));
-    body.push_str(&meteo_band(model.current.as_ref()));
-    body.push_str(&forecast_band(&model.days, model.day_weekdays));
-    body.push_str(&footer_band(model.today.as_ref()));
-    body.push_str(&section_dividers());
-    wrap(&body)
+    build_svg_with_layout(default_layout(), model, now_local)
+        .expect("embedded default layout must resolve (test-guaranteed)")
 }
 
-fn wrap(body: &str) -> String {
+/// Render the dashboard to SVG using an explicit layout.
+///
+/// Returns [`LayoutError`] if the layout fails to
+/// resolve — use this entry point when the layout was
+/// loaded from user input.
+///
+/// # Errors
+///
+/// Propagates any [`LayoutError`] produced by
+/// [`Layout::resolve`] (empty splits, overflow,
+/// arithmetic overflow).
+pub fn build_svg_with_layout(
+    layout: &Layout,
+    model: &DashboardModel,
+    now_local: NaiveTime,
+) -> Result<String, LayoutError> {
+    let resolved = layout.resolve()?;
+    let ctx = RenderContext { model, now_local };
+
+    let mut body = String::new();
+    for p in &resolved.widgets {
+        body.push_str(&render_widget(p.widget, p.bounds, &ctx));
+    }
+    for d in &resolved.dividers {
+        body.push_str(&render_divider(layout.canvas.width, *d));
+    }
+    Ok(wrap(layout.canvas.width, layout.canvas.height, &body))
+}
+
+/// Embedded default dashboard layout. The source of
+/// truth lives in `crates/bellwether/assets/layout.toml`
+/// and is parsed once on first use.
+fn default_layout() -> &'static Layout {
+    static LAYOUT: OnceLock<Layout> = OnceLock::new();
+    LAYOUT.get_or_init(|| {
+        let src = include_str!("../../../assets/layout.toml");
+        toml::from_str(src)
+            .expect("embedded layout.toml must parse successfully")
+    })
+}
+
+/// Render a single widget at its assigned bounds.
+fn render_widget(
+    kind: &WidgetKind,
+    bounds: Rect,
+    ctx: &RenderContext<'_>,
+) -> String {
+    let current = ctx.model.current.as_ref();
+    let today = ctx.model.today.as_ref();
+    match kind {
+        WidgetKind::Brand => render_brand(bounds),
+        WidgetKind::HeaderTitle { text } => render_header_title(bounds, text),
+        WidgetKind::Clock => render_clock(bounds, ctx.now_local),
+        WidgetKind::Battery => render_battery(bounds, ctx.model.battery_pct),
+        WidgetKind::CurrentConditions => {
+            render_current_conditions(bounds, current)
+        }
+        WidgetKind::Wind => render_meteo_cell(
+            bounds,
+            &current.map_or_else(
+                || format_missing_cell("Wind"),
+                |c| format_wind_cell(c.wind_kmh, c.wind_compass),
+            ),
+        ),
+        WidgetKind::Gust => render_meteo_cell(
+            bounds,
+            &current.map_or_else(
+                || format_missing_cell("Gust"),
+                |c| format_gust_cell(c.gust_kmh),
+            ),
+        ),
+        WidgetKind::Humidity => render_meteo_cell(
+            bounds,
+            &current.map_or_else(
+                || format_missing_cell("Humidity"),
+                |c| format_humidity_cell(c.humidity_pct),
+            ),
+        ),
+        WidgetKind::ForecastDay { offset } => {
+            let idx = usize::from(*offset);
+            // Out-of-range offsets render a "—" tile
+            // rather than panic — the `days` /
+            // `day_weekdays` arrays are fixed-length by
+            // DashboardModel contract, but the offset
+            // is a u8 loaded from user TOML.
+            match (ctx.model.days.get(idx), ctx.model.day_weekdays.get(idx)) {
+                (Some(day), Some(weekday)) => {
+                    forecast_tile(bounds, day.as_ref(), *weekday)
+                }
+                _ => forecast_tile_out_of_range(bounds),
+            }
+        }
+        WidgetKind::TodayHiLo => render_today_hi_lo(bounds, today),
+        WidgetKind::Sunrise => render_footer_astro(
+            bounds,
+            "Sunrise",
+            today.and_then(|t| t.sunrise_local),
+        ),
+        WidgetKind::Sunset => render_footer_astro(
+            bounds,
+            "Sunset",
+            today.and_then(|t| t.sunset_local),
+        ),
+    }
+}
+
+fn wrap(canvas_w: u32, canvas_h: u32, body: &str) -> String {
     format!(
         concat!(
             "<svg xmlns=\"http://www.w3.org/2000/svg\" ",
@@ -196,57 +282,93 @@ fn wrap(body: &str) -> String {
             "{body}",
             "</svg>",
         ),
-        w = CANVAS_W,
-        h = CANVAS_H,
+        w = canvas_w,
+        h = canvas_h,
         body = body,
     )
 }
 
-fn section_dividers() -> String {
-    let mut out = String::new();
-    for y in [
-        HEADER_DIVIDER_Y,
-        CURRENT_DIVIDER_Y,
-        METEO_DIVIDER_Y,
-        FORECAST_DIVIDER_Y,
-    ] {
-        let _ = write!(
-            out,
-            concat!(
-                "<line x1=\"{x1}\" y1=\"{y}\" x2=\"{x2}\" y2=\"{y}\" ",
-                "stroke=\"black\" stroke-width=\"2\"/>",
-            ),
-            x1 = DIVIDER_INSET_X,
-            x2 = CANVAS_W - DIVIDER_INSET_X,
-            y = y,
-        );
+/// Render a single [`PlacedDivider`] as a 2-px line.
+/// Horizontal-split dividers become vertical lines
+/// running full bounds height; vertical-split dividers
+/// become horizontal lines inset from the canvas edges
+/// so they don't run edge-to-edge.
+fn render_divider(canvas_w: u32, d: PlacedDivider) -> String {
+    match d.orientation {
+        Direction::Vertical => {
+            // Split is vertical → children stack top→bottom
+            // → divider line runs horizontally between
+            // them. Inset from the left/right edges.
+            let y = d.bounds.y + d.bounds.h / 2;
+            format!(
+                "<line x1=\"{x1}\" y1=\"{y}\" x2=\"{x2}\" y2=\"{y}\" \
+                 stroke=\"black\" stroke-width=\"{s}\"/>",
+                x1 = DIVIDER_INSET_X,
+                x2 = canvas_w.saturating_sub(DIVIDER_INSET_X),
+                y = y,
+                s = DIVIDER_STROKE,
+            )
+        }
+        Direction::Horizontal => {
+            // Split is horizontal → children stack
+            // left→right → divider line runs vertically.
+            let x = d.bounds.x + d.bounds.w / 2;
+            format!(
+                "<line x1=\"{x}\" y1=\"{y1}\" x2=\"{x}\" y2=\"{y2}\" \
+                 stroke=\"black\" stroke-width=\"{s}\"/>",
+                x = x,
+                y1 = d.bounds.y,
+                y2 = d.bounds.y + d.bounds.h,
+                s = DIVIDER_STROKE,
+            )
+        }
     }
-    out
 }
 
-// ─── Header band ─────────────────────────────────────
+// ─── Header-band widgets ────────────────────────────
 
-fn header_band(now_local: NaiveTime, battery_pct: Option<u8>) -> String {
-    let brand = header_brand();
-    let title = header_title();
-    let clock = header_clock(now_local);
-    let battery = battery_indicator(battery_pct);
-    format!("{brand}{title}{clock}{battery}")
+/// Baseline of header-row text as a fraction of the
+/// band's height — 68 % places it visually just below
+/// the centre, matching the prior hardcoded y=34 on a
+/// 50-px band.
+fn header_baseline_y(bounds: Rect) -> u32 {
+    bounds.y + bounds.h * 68 / 100
 }
 
-fn header_brand() -> String {
-    text(30, 34, BRAND_PX, "start", " font-weight=\"bold\"", "TRMNL")
+fn render_brand(bounds: Rect) -> String {
+    text(
+        bounds.x + 30,
+        header_baseline_y(bounds),
+        BRAND_PX,
+        "start",
+        " font-weight=\"bold\"",
+        "TRMNL",
+    )
 }
 
-fn header_title() -> String {
-    text(400, 34, HEADER_TITLE_PX, "middle", "", "Weather Report")
+fn render_header_title(bounds: Rect, title_text: &str) -> String {
+    text(
+        bounds.x + bounds.w / 2,
+        header_baseline_y(bounds),
+        HEADER_TITLE_PX,
+        "middle",
+        "",
+        title_text,
+    )
 }
 
-fn header_clock(now_local: NaiveTime) -> String {
-    // Right-aligned against the battery indicator.
-    // Battery sits at x=690..=760; clock ends at
-    // x=660 with a gap.
-    text(650, 34, CLOCK_PX, "end", "", &format_clock(now_local))
+fn render_clock(bounds: Rect, now_local: NaiveTime) -> String {
+    // End-anchored at the bounds' right edge. The
+    // header layout sizes the clock cell so this
+    // lands visually clear of the battery indicator.
+    text(
+        bounds.x + bounds.w,
+        header_baseline_y(bounds),
+        CLOCK_PX,
+        "end",
+        "",
+        &format_clock(now_local),
+    )
 }
 
 fn format_clock(t: NaiveTime) -> String {
@@ -258,10 +380,9 @@ fn format_clock(t: NaiveTime) -> String {
 
 // ─── Battery indicator ──────────────────────────────
 
-/// Battery outline position. Top-left corner.
-const BATTERY_X: u32 = 690;
-const BATTERY_Y: u32 = 14;
+/// Battery outline width in pixels.
 const BATTERY_W: u32 = 60;
+/// Battery outline height in pixels.
 const BATTERY_H: u32 = 24;
 /// Stroke thickness of the outline.
 const BATTERY_STROKE: u32 = 2;
@@ -270,18 +391,23 @@ const BATTERY_STROKE: u32 = 2;
 /// visually a capped rectangle.
 const BATTERY_TIP_W: u32 = 4;
 const BATTERY_TIP_H: u32 = 10;
-/// Font-size for the percentage text right of the
-/// outline. Actually drawn *left* of the outline
-/// because the outline sits at the far-right of the
-/// canvas — the percentage reads more naturally to
-/// its left.
-const BATTERY_PCT_X: u32 = 685;
-const BATTERY_PCT_Y: u32 = 34;
 /// Inside-fill padding — the fill rectangle sits
 /// strictly inside the stroke.
 const BATTERY_FILL_INSET: u32 = 4;
+/// Left pad of the battery outline inside its widget
+/// bounds — leaves room for the percentage label.
+const BATTERY_LEFT_PAD: u32 = 40;
 
-fn battery_indicator(pct: Option<u8>) -> String {
+fn render_battery(bounds: Rect, pct: Option<u8>) -> String {
+    // Centre the outline vertically within the bounds.
+    // Falls back to 0 if bounds.h somehow ends up
+    // smaller than the outline height.
+    let outline_y = bounds.y + bounds.h.saturating_sub(BATTERY_H) / 2;
+    let label_y = header_baseline_y(bounds);
+    // Left-pad the outline inside the bounds so there's
+    // room for the percentage label on its left.
+    let outline_x = bounds.x + BATTERY_LEFT_PAD;
+    let label_x = outline_x.saturating_sub(5);
     let outline = format!(
         concat!(
             "<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" ",
@@ -289,13 +415,13 @@ fn battery_indicator(pct: Option<u8>) -> String {
             "<rect x=\"{tip_x}\" y=\"{tip_y}\" ",
             "width=\"{tw}\" height=\"{th}\" fill=\"black\"/>",
         ),
-        x = BATTERY_X,
-        y = BATTERY_Y,
+        x = outline_x,
+        y = outline_y,
         w = BATTERY_W,
         h = BATTERY_H,
         s = BATTERY_STROKE,
-        tip_x = BATTERY_X + BATTERY_W,
-        tip_y = BATTERY_Y + (BATTERY_H - BATTERY_TIP_H) / 2,
+        tip_x = outline_x + BATTERY_W,
+        tip_y = outline_y + (BATTERY_H - BATTERY_TIP_H) / 2,
         tw = BATTERY_TIP_W,
         th = BATTERY_TIP_H,
     );
@@ -303,19 +429,15 @@ fn battery_indicator(pct: Option<u8>) -> String {
         Some(p) => format!("{p}%"),
         None => PLACEHOLDER.to_owned(),
     };
-    let label = text(
-        BATTERY_PCT_X,
-        BATTERY_PCT_Y,
-        BATTERY_PCT_PX,
-        "end",
-        "",
-        &label_content,
-    );
-    let fill = pct.map_or_else(String::new, battery_fill_rect);
+    let label =
+        text(label_x, label_y, BATTERY_PCT_PX, "end", "", &label_content);
+    let fill = pct.map_or_else(String::new, |p| {
+        battery_fill_rect(outline_x, outline_y, p)
+    });
     format!("{label}{outline}{fill}")
 }
 
-fn battery_fill_rect(pct: u8) -> String {
+fn battery_fill_rect(outline_x: u32, outline_y: u32, pct: u8) -> String {
     // Upstream `battery_voltage_to_pct` already clamps
     // to 0..=100; keep the debug-assert so a broken
     // path surfaces in tests rather than silently
@@ -338,48 +460,52 @@ fn battery_fill_rect(pct: u8) -> String {
             "<rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" ",
             "fill=\"black\"/>",
         ),
-        x = BATTERY_X + BATTERY_FILL_INSET,
-        y = BATTERY_Y + BATTERY_FILL_INSET,
+        x = outline_x + BATTERY_FILL_INSET,
+        y = outline_y + BATTERY_FILL_INSET,
         w = width,
         h = BATTERY_H - 2 * BATTERY_FILL_INSET,
     )
 }
 
-// ─── Current-conditions band ────────────────────────
+// ─── Current-conditions widget ─────────────────────
 
-fn current_band(current: Option<&CurrentConditions>) -> String {
+fn render_current_conditions(
+    bounds: Rect,
+    current: Option<&CurrentConditions>,
+) -> String {
     match current {
         Some(c) => {
-            let icon = current_icon(c.condition);
-            let temp = current_temperature(c.temp_c);
-            let condition = current_condition_label(c.condition);
-            let feels = current_feels_like(c.feels_like_c);
+            let icon = current_icon(bounds, c.condition);
+            let temp = current_temperature(bounds, c.temp_c);
+            let condition = current_condition_label(bounds, c.condition);
+            let feels = current_feels_like(bounds, c.feels_like_c);
             format!("{icon}{temp}{condition}{feels}")
         }
-        None => current_temperature_placeholder(),
+        None => current_temperature_placeholder(bounds),
     }
 }
 
-fn current_icon(condition: Condition) -> String {
-    // Icon fragment is authored at 48 user units;
-    // scale to 100 px so it sits comfortably on the
-    // left third of the current panel (y=50..=190
-    // is 140 px tall; 100 × 100 icon leaves 20-px
-    // top/bottom padding).
+fn current_icon(bounds: Rect, condition: Condition) -> String {
+    // Icon authored at 48 user units; scale to ≈100 px
+    // so it sits comfortably on the band's left third.
+    // Translation is offset 30 px right and 20 px down
+    // from the band origin.
     format!(
         concat!(
-            "<g transform=\"translate(30 70) scale(2.08)\">",
+            "<g transform=\"translate({tx} {ty}) scale(2.08)\">",
             "{icon}",
             "</g>",
         ),
+        tx = bounds.x + 30,
+        ty = bounds.y + 20,
         icon = icons::icon_for(condition),
     )
 }
 
-fn current_temperature(temp_c: f64) -> String {
+fn current_temperature(bounds: Rect, temp_c: f64) -> String {
     text(
-        150,
-        160,
+        bounds.x + 150,
+        bounds.y + 110,
         CURRENT_TEMP_PX,
         "start",
         "",
@@ -387,15 +513,15 @@ fn current_temperature(temp_c: f64) -> String {
     )
 }
 
-fn current_temperature_placeholder() -> String {
+fn current_temperature_placeholder(bounds: Rect) -> String {
     // The current band is 140 px tall; a lone 120-px
     // em-dash reads as visual noise. Use a smaller
     // explicit label centred in the band instead, so
     // the operator understands "no current reading"
     // rather than "the system rendered garbage".
     text(
-        CANVAS_W / 2,
-        130,
+        bounds.x + bounds.w / 2,
+        bounds.y + 80,
         CONDITION_LABEL_PX,
         "middle",
         "",
@@ -403,14 +529,21 @@ fn current_temperature_placeholder() -> String {
     )
 }
 
-fn current_condition_label(condition: Condition) -> String {
-    text(420, 115, CONDITION_LABEL_PX, "start", "", condition.label())
+fn current_condition_label(bounds: Rect, condition: Condition) -> String {
+    text(
+        bounds.x + 420,
+        bounds.y + 65,
+        CONDITION_LABEL_PX,
+        "start",
+        "",
+        condition.label(),
+    )
 }
 
-fn current_feels_like(feels_like_c: f64) -> String {
+fn current_feels_like(bounds: Rect, feels_like_c: f64) -> String {
     text(
-        420,
-        160,
+        bounds.x + 420,
+        bounds.y + 110,
         FEELS_LIKE_PX,
         "start",
         "",
@@ -420,36 +553,12 @@ fn current_feels_like(feels_like_c: f64) -> String {
 
 // ─── Meteorology strip ─────────────────────────────
 
-fn meteo_band(current: Option<&CurrentConditions>) -> String {
-    let cells = match current {
-        Some(c) => [
-            format_wind_cell(c.wind_kmh, c.wind_compass),
-            format_gust_cell(c.gust_kmh),
-            format_humidity_cell(c.humidity_pct),
-        ],
-        None => [
-            format_missing_cell("Wind"),
-            format_missing_cell("Gust"),
-            format_missing_cell("Humidity"),
-        ],
-    };
-    let mut out = String::new();
-    for (x, cell_text) in TRIPLE_COLUMN_CENTRES.iter().zip(cells.iter()) {
-        out.push_str(&text(*x, 222, METEO_CELL_PX, "middle", "", cell_text));
-    }
-    out.push_str(&meteo_separator(266));
-    out.push_str(&meteo_separator(533));
-    out
-}
-
-fn meteo_separator(x: u32) -> String {
-    format!(
-        concat!(
-            "<line x1=\"{x}\" y1=\"198\" x2=\"{x}\" y2=\"232\" ",
-            "stroke=\"black\" stroke-width=\"1\"/>",
-        ),
-        x = x,
-    )
+fn render_meteo_cell(bounds: Rect, cell_text: &str) -> String {
+    let centre_x = bounds.x + bounds.w / 2;
+    // Centre the text vertically within the bounds,
+    // nudged down to land on the typographic baseline.
+    let baseline_y = bounds.y + bounds.h * 64 / 100;
+    text(centre_x, baseline_y, METEO_CELL_PX, "middle", "", cell_text)
 }
 
 fn format_wind_cell(kmh: f64, from: Compass8) -> String {
@@ -497,20 +606,8 @@ fn format_labelled_number(
 
 // ─── Forecast row ───────────────────────────────────
 
-fn forecast_band(
-    days: &[Option<DaySummary>; DAY_TILE_COUNT],
-    weekdays: [Weekday; DAY_TILE_COUNT],
-) -> String {
-    TRIPLE_COLUMN_CENTRES
-        .iter()
-        .zip(days.iter())
-        .zip(weekdays.iter())
-        .map(|((x, slot), weekday)| forecast_tile(*x, slot.as_ref(), *weekday))
-        .collect()
-}
-
 fn forecast_tile(
-    centre_x: u32,
+    bounds: Rect,
     day: Option<&DaySummary>,
     weekday: Weekday,
 ) -> String {
@@ -518,16 +615,32 @@ fn forecast_tile(
     // the data row is a placeholder, so an operator
     // can see *which* day is missing instead of a
     // dangling em-dash between two real days.
-    let label = day_label(centre_x, weekday);
+    let centre_x = bounds.x + bounds.w / 2;
+    let label = day_label(bounds, centre_x, weekday);
     let body = match day {
         Some(d) => {
-            let icon = day_icon(centre_x, d.condition);
-            let high_low = day_high_low(centre_x, d.high_c, d.low_c);
+            let icon = day_icon(bounds, centre_x, d.condition);
+            let high_low = day_high_low(bounds, centre_x, d.high_c, d.low_c);
             format!("{icon}{high_low}")
         }
-        None => day_placeholder(centre_x),
+        None => day_placeholder(bounds, centre_x),
     };
     format!("{label}{body}")
+}
+
+fn forecast_tile_out_of_range(bounds: Rect) -> String {
+    let centre_x = bounds.x + bounds.w / 2;
+    // Centre a placeholder vertically — this path only
+    // fires if `layout.toml` specifies an out-of-range
+    // `ForecastDay.offset`.
+    text(
+        centre_x,
+        bounds.y + bounds.h / 2,
+        DAY_HIGH_LOW_PX,
+        "middle",
+        "",
+        PLACEHOLDER,
+    )
 }
 
 /// Three-letter English abbreviation for a weekday.
@@ -548,10 +661,15 @@ fn weekday_label(w: Weekday) -> &'static str {
     }
 }
 
-fn day_label(centre_x: u32, weekday: Weekday) -> String {
+/// Baseline offsets within a forecast tile, expressed
+/// as fractions of the tile's height. The defaults
+/// reproduce the old 190-px band layout (label at
+/// y=280 → 21 % from band top, icon at y=300 → 32 %,
+/// H/L at y=412 → 91 %).
+fn day_label(bounds: Rect, centre_x: u32, weekday: Weekday) -> String {
     text(
         centre_x,
-        280,
+        bounds.y + bounds.h * 21 / 100,
         DAY_LABEL_PX,
         "middle",
         "",
@@ -559,19 +677,22 @@ fn day_label(centre_x: u32, weekday: Weekday) -> String {
     )
 }
 
-fn day_icon(centre_x: u32, condition: Condition) -> String {
-    // Tile icon at scale 1.6 → 77 × 77 px. Top at
-    // y=300, bottom at y=377. Below, the H/L text
-    // sits at y=412 (baseline), leaving ~15 px margin.
+fn day_icon(bounds: Rect, centre_x: u32, condition: Condition) -> String {
+    // Tile icon at scale 1.6 → 77 × 77 px; anchored
+    // ~32 % from the band top, centred horizontally on
+    // the column.
     let translate_x = i64::from(centre_x) - 38;
+    let translate_y = bounds.y + bounds.h * 32 / 100;
     format!(
-        "<g transform=\"translate({tx} 300) scale(1.6)\">{icon}</g>",
+        "<g transform=\"translate({tx} {ty}) scale(1.6)\">{icon}</g>",
         tx = translate_x,
+        ty = translate_y,
         icon = icons::icon_for(condition),
     )
 }
 
 fn day_high_low(
+    bounds: Rect,
     centre_x: u32,
     high_c: Option<i32>,
     low_c: Option<i32>,
@@ -581,11 +702,25 @@ fn day_high_low(
         high = format_temp(high_c),
         low = format_temp(low_c),
     );
-    text(centre_x, 412, DAY_HIGH_LOW_PX, "middle", "", &content)
+    text(
+        centre_x,
+        bounds.y + bounds.h * 91 / 100,
+        DAY_HIGH_LOW_PX,
+        "middle",
+        "",
+        &content,
+    )
 }
 
-fn day_placeholder(centre_x: u32) -> String {
-    text(centre_x, 345, DAY_HIGH_LOW_PX, "middle", "", PLACEHOLDER)
+fn day_placeholder(bounds: Rect, centre_x: u32) -> String {
+    text(
+        centre_x,
+        bounds.y + bounds.h * 55 / 100,
+        DAY_HIGH_LOW_PX,
+        "middle",
+        "",
+        PLACEHOLDER,
+    )
 }
 
 fn format_temp(value: Option<i32>) -> String {
@@ -595,10 +730,10 @@ fn format_temp(value: Option<i32>) -> String {
     }
 }
 
-// ─── Footer band ────────────────────────────────────
+// ─── Footer widgets ────────────────────────────────
 
-fn footer_band(today: Option<&TodaySummary>) -> String {
-    let today_content = today.map_or_else(
+fn render_today_hi_lo(bounds: Rect, today: Option<&TodaySummary>) -> String {
+    let content = today.map_or_else(
         || format!("Today {PLACEHOLDER}"),
         |t| {
             format!(
@@ -608,20 +743,31 @@ fn footer_band(today: Option<&TodaySummary>) -> String {
             )
         },
     );
-    let today_hi_lo = footer_item(30, &today_content);
-    let sunrise = footer_item(
-        410,
-        &astro_label("Sunrise", today.and_then(|t| t.sunrise_local)),
-    );
-    let sunset = footer_item(
-        620,
-        &astro_label("Sunset", today.and_then(|t| t.sunset_local)),
-    );
-    format!("{today_hi_lo}{sunrise}{sunset}")
+    footer_item(bounds, &content)
 }
 
-fn footer_item(x: u32, content: &str) -> String {
-    text(x, 462, FOOTER_PX, "start", "", content)
+fn render_footer_astro(
+    bounds: Rect,
+    label: &str,
+    time: Option<NaiveTime>,
+) -> String {
+    footer_item(bounds, &astro_label(label, time))
+}
+
+/// Left padding applied inside each footer widget's
+/// bounds before its text baseline. Keeps the three
+/// items visually aligned with a consistent gutter.
+const FOOTER_ITEM_LEFT_PAD: u32 = 30;
+
+fn footer_item(bounds: Rect, content: &str) -> String {
+    text(
+        bounds.x + FOOTER_ITEM_LEFT_PAD,
+        bounds.y + bounds.h * 64 / 100,
+        FOOTER_PX,
+        "start",
+        "",
+        content,
+    )
 }
 
 fn astro_label(label: &str, time: Option<NaiveTime>) -> String {

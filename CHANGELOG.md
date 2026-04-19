@@ -10,6 +10,38 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Configurable widget-layout system. The dashboard
+  tree (splits, widgets, dividers, sizing) is now
+  declared in `crates/bellwether/assets/layout.toml`
+  and resolved at render time by
+  `dashboard::layout::Layout::resolve`. A new
+  strongly-typed `WidgetKind` enum covers every
+  widget in the default dashboard (brand, header
+  title, clock, battery, current conditions, wind,
+  gust, humidity, forecast-day, today hi/lo,
+  sunrise, sunset). Children declare their sizing
+  as `size = N` (fixed pixels) or `flex = N`
+  (weighted share); `flex = 0`, both size and flex,
+  or neither are rejected at TOML parse time.
+  `SplitNode.divider = true` reserves 2 px between
+  children and emits a line there, replacing the
+  previous hardcoded section/column separators.
+
+### Changed
+
+- `dashboard::build_svg` still renders the embedded
+  default layout; for user-supplied layouts use the
+  new `build_svg_with_layout(&Layout, ...) ->
+  Result<String, LayoutError>`. Widget Y
+  coordinates are now bounds-relative — resizing a
+  band in `layout.toml` moves its widgets with it.
+- `<text>` content is XML-escaped before
+  interpolation, so arbitrary `HeaderTitle.text`
+  values (including `&`, `<`, `>`) produce
+  well-formed SVG.
+
 ### Fixed
 
 - `ImageStore` now evicts the oldest image once the

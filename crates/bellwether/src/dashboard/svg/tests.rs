@@ -9,6 +9,19 @@ fn noon() -> NaiveTime {
     NaiveTime::from_hms_opt(11, 45, 0).unwrap()
 }
 
+#[test]
+fn embedded_layout_parses_and_resolves() {
+    // Guards the `expect("embedded default layout must
+    // resolve")` inside `build_svg` — any accidental
+    // breakage of `assets/layout.toml` will fail here
+    // instead of crashing a production render.
+    let layout = default_layout();
+    let resolved = layout
+        .resolve()
+        .expect("embedded layout.toml must resolve cleanly");
+    assert!(!resolved.widgets.is_empty());
+}
+
 fn sample_model() -> DashboardModel {
     DashboardModel {
         current: Some(CurrentConditions {

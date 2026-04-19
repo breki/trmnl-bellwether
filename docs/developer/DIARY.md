@@ -7,6 +7,39 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Configurable widget layout via `layout.toml` (v0.14.0)
+
+    Replaced the hardcoded 5-band SVG builder with a
+    data-driven layout system. Dashboard structure now
+    lives in `crates/bellwether/assets/layout.toml` as
+    a recursive tree of splits (horizontal / vertical,
+    optional divider) and strongly-typed widgets
+    (`brand`, `header-title`, `clock`, `battery`,
+    `current-conditions`, `wind`, `gust`, `humidity`,
+    `forecast-day`, `today-hi-lo`, `sunrise`, `sunset`).
+    Children declare sizing as `size = N` (fixed px) or
+    `flex = N` (weighted share); the parser rejects
+    `flex = 0`, both, or neither at TOML load time so
+    invalid states can't reach the resolver.
+
+    `Layout::resolve` walks the tree into a `Resolved`
+    struct (widget placements + divider placements),
+    the SVG builder dispatches each placement to a
+    bounds-relative widget render fn. `SplitNode.divider
+    = true` is now the single source of truth for
+    between-children lines — no more hardcoded
+    `section_dividers` / `meteo_column_separators`.
+
+    All resolver arithmetic is `u64`-internal with
+    `checked_add` / `checked_mul` so pathological user
+    values can't wrap past the `Overflow` check.
+    `<text>` content is XML-escaped, so `HeaderTitle`
+    strings with `&` / `<` / `>` produce well-formed
+    SVG. `build_svg_with_layout` returns
+    `Result<String, LayoutError>` for user-supplied
+    layouts; `build_svg` keeps its panic-free signature
+    via the test-guaranteed embedded default.
+
 - Cap `ImageStore` retention at 4 (v0.13.1)
 
     The in-memory BMP store grew without bound: every

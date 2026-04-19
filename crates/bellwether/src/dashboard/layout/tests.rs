@@ -188,7 +188,7 @@ fn nested_splits() {
                     ],
                 }),
             ),
-            Child::flex(1, widget(WidgetKind::CurrentConditions)),
+            Child::flex(1, widget(WidgetKind::TempNow { day: TodayOnly })),
         ],
     });
     let resolved = resolve_node(&root, canvas(800, 480)).unwrap();
@@ -397,15 +397,15 @@ children = [
 
 [[children]]
 size = 140
-widget = "current-conditions"
+widget = "temp-now"
 
 [[children]]
 flex = 1
 split = "horizontal"
 children = [
-  { flex = 1, widget = "forecast-day", offset = 0 },
-  { flex = 1, widget = "forecast-day", offset = 1 },
-  { flex = 1, widget = "forecast-day", offset = 2 },
+  { flex = 1, widget = "weather-icon", day = 0 },
+  { flex = 1, widget = "weather-icon", day = 1 },
+  { flex = 1, widget = "weather-icon", day = 2 },
 ]
 "#;
     let layout: Layout = toml::from_str(toml_src).unwrap();
@@ -430,10 +430,11 @@ children = [
     }
     for (i, idx) in [5usize, 6, 7].iter().enumerate() {
         match resolved.widgets[*idx].widget {
-            WidgetKind::ForecastDay { offset } => {
-                assert_eq!(usize::from(*offset), i);
-            }
-            other => panic!("expected ForecastDay, got {other:?}"),
+            WidgetKind::WeatherIcon { day } => match day {
+                DaySelector::Offset(n) => assert_eq!(usize::from(*n), i),
+                DaySelector::Today => panic!("expected numeric day offset"),
+            },
+            other => panic!("expected WeatherIcon, got {other:?}"),
         }
     }
 }
@@ -481,4 +482,124 @@ widget = "brand"
         err.to_string().contains("must be at least 1"),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn day_selector_accepts_today_string_and_offset_number() {
+    let today: Child = toml::from_str(
+        r#"size = 10
+widget = "weather-icon"
+day = "today"
+"#,
+    )
+    .unwrap();
+    match today.node {
+        Node::Widget(WidgetKind::WeatherIcon {
+            day: DaySelector::Today,
+        }) => {}
+        other => panic!("expected WeatherIcon{{day=Today}}, got {other:?}"),
+    }
+    let offset: Child = toml::from_str(
+        r#"size = 10
+widget = "day-name"
+day = 2
+"#,
+    )
+    .unwrap();
+    match offset.node {
+        Node::Widget(WidgetKind::DayName {
+            day: DaySelector::Offset(2),
+        }) => {}
+        other => panic!("expected DayName{{day=Offset(2)}}, got {other:?}"),
+    }
+}
+
+#[test]
+fn day_selector_rejects_unknown_string() {
+    // Tested directly rather than through the untagged
+    // `Node` enum because serde's untagged dispatch
+    // discards inner error messages.
+    #[derive(Debug, Deserialize)]
+    struct Holder {
+        #[allow(dead_code)]
+        day: DaySelector,
+    }
+    let err = toml::from_str::<Holder>(r#"day = "tomorrow""#).unwrap_err();
+    assert!(
+        err.to_string().contains("day must be"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn today_selector_case_insensitive() {
+    #[derive(Debug, Deserialize)]
+    struct Holder {
+        #[allow(dead_code)]
+        day: DaySelector,
+    }
+    for casing in ["today", "Today", "TODAY", "tOdAy"] {
+        let h: Holder =
+            toml::from_str(&format!(r#"day = "{casing}""#)).unwrap();
+        assert!(
+            matches!(h.day, DaySelector::Today),
+            "casing {casing:?} didn't resolve to Today",
+        );
+    }
+}
+
+#[test]
+fn today_only_rejects_numeric_day_with_pointed_message() {
+    // Tested directly (not through the untagged `Node`
+    // enum) because serde's untagged dispatch discards
+    // inner error messages.
+    #[derive(Debug, Deserialize)]
+    struct Holder {
+        #[allow(dead_code)]
+        day: TodayOnly,
+    }
+    let err = toml::from_str::<Holder>("day = 2").unwrap_err();
+    assert!(
+        err.to_string().contains("today-only"),
+        "unexpected error: {err}"
+    );
+    // Plain absence parses via `#[serde(default)]` —
+    // covered implicitly by `parses_layout_toml` and
+    // the `TempNow { day: TodayOnly }` construction
+    // in `nested_splits`.
+    let ok: Holder = toml::from_str("day = \"today\"").unwrap();
+    assert_eq!(ok.day, TodayOnly);
+}
+
+#[test]
+fn temp_high_accepts_optional_label() {
+    let labelled: Child = toml::from_str(
+        r#"size = 10
+widget = "temp-high"
+day = "today"
+label = "H"
+"#,
+    )
+    .unwrap();
+    match labelled.node {
+        Node::Widget(WidgetKind::TempHigh { day, label }) => {
+            assert!(matches!(day, DaySelector::Today));
+            assert_eq!(label.as_deref(), Some("H"));
+        }
+        other => panic!("expected TempHigh, got {other:?}"),
+    }
+    let bare: Child = toml::from_str(
+        r#"size = 10
+widget = "temp-low"
+day = 1
+"#,
+    )
+    .unwrap();
+    match bare.node {
+        Node::Widget(WidgetKind::TempLow { day, label }) => {
+            assert!(matches!(day, DaySelector::Offset(1)));
+            assert!(label.is_none());
+        }
+        other => panic!("expected TempLow, got {other:?}"),
+    }
 }

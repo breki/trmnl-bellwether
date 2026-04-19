@@ -7,6 +7,47 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Split compound weather widgets into atomic
+  widgets (v0.17.0)
+
+    The old compound widgets —
+    `current-conditions` (icon + big temp +
+    condition label + feels-like), `forecast-day`
+    (day name + icon + H/L line per tile), and
+    `today-hi-lo` (combined high/low footer item)
+    — positioned their sub-elements by absolute
+    pixel offsets inside the compound bounds,
+    which made it impossible to re-arrange any
+    sub-element without touching the renderer.
+    Replaced with seven atomic widgets:
+    `weather-icon`, `temp-now`, `condition`,
+    `feels-like`, `day-name`, `temp-high`,
+    `temp-low`. Each atomic widget centres itself
+    inside its own `Rect` and auto-sizes its font
+    to the bounds' height, so emphasis is now a
+    pure function of the split tree in
+    `layout.toml`.
+
+    Weather-domain widgets take a `day` selector:
+    `day = "today"` reads from `CurrentConditions`
+    + `TodaySummary`, numeric `day = N` reads
+    forecast offset N. `temp-high`/`temp-low`
+    accept an optional `label` prefix so a tile
+    can render `"H 12°"` without needing a
+    separate label widget. `feels-like` and
+    `temp-now` are today-only because the forecast
+    model has no corresponding per-day datum.
+
+    Default `assets/layout.toml` rewritten to
+    compose the same visual from atomic widgets +
+    nested splits. The compound variants are
+    removed from `WidgetKind` entirely — any user
+    `[dashboard]` TOML using the old names will
+    fail to parse. SemVer minor bump because the
+    breakage is limited to the layout DSL, which
+    is documented as a user-facing configuration
+    surface but not a stable API.
+
 - Fix landing-page preview `<img>` (v0.16.1)
 
     The landing page pointed its preview `<img>` at

@@ -6,6 +6,28 @@ findings.
 
 ---
 
+## 2026-04-19 (feat — v0.17.0 atomic widgets)
+
+### AQ-A — `fit_font_px` used u32 arithmetic with silent overflow potential
+**Category:** Type safety / defensive math
+**Description:** `bounds.w * 100 / (n_chars * AVG_GLYPH_WIDTH_PCT)` was pure u32; pathological (but TOML-trusted) geometry could wrap. Elsewhere in the layout resolver all arithmetic is u64-with-saturating as an established pattern.
+**Fix:** Rewrote `fit_font_px` to compute in u64 with `saturating_mul`, then narrow at the end. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-B — `render_temp_high` / `render_temp_low` were verbatim aliases
+**Category:** Dead abstraction
+**Description:** Both functions delegated directly to `render_temp_hilo` with no added behaviour, existing only to name-match `WidgetKind` variants.
+**Fix:** Collapsed the wrappers; the dispatcher now calls `render_labelled_temp` (renamed) directly for both variants. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-C — `DaySelector` resolution duplicated across three free helpers
+**Category:** Boundary design
+**Description:** `day_condition`, `day_high_c`, `day_low_c` each repeated the same `match day { Today => ...; Offset(n) => ... }` skeleton. Adding any new day-derived field meant another copy.
+**Fix:** Introduced `DayView` struct + `resolve_day(day, model) -> DayView` that performs the match once and exposes `.condition`, `.high_c`, `.low_c` uniformly. Dispatcher call sites now read `resolve_day(*day, ctx.model).high_c`. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-E — `TempNow` / `FeelsLike` "today-only" constraint in prose, not types
+**Category:** Type safety
+**Description:** Both variants were data-less, so a TOML author could place them anywhere without complaint while the docs said "today-only". A future per-day apparent-temp field in the model would turn that into a silent footgun.
+**Fix:** Introduced `TodayOnly` ZST with a custom `Deserialize` that accepts `day = "today"` (or absent via `#[serde(default)]`) and rejects numeric offsets with a pointed error. Added `day: TodayOnly` field to both variants. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
 ## 2026-04-19 (feat — v0.15.0 inline `[dashboard]` layout)
 
 ### AQ-118 — Fully-qualified `crate::dashboard::layout::Layout` repeated across callers

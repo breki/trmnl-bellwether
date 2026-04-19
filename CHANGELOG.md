@@ -12,6 +12,15 @@ and this project adheres to
 
 ### Added
 
+- Atomic weather widgets: `weather-icon`, `temp-now`,
+  `condition`, `feels-like`, `day-name`, `temp-high`,
+  `temp-low`. Weather-domain widgets take a `day`
+  selector (`"today"` or numeric forecast offset
+  `0..N`). `temp-high`/`temp-low` accept an optional
+  `label` prefix (e.g. `label = "H"` → `"H 12°"`).
+  Text widgets auto-size their font to the assigned
+  bounds so layout controls visual weight purely via
+  splits.
 - Hand-rolled HTML landing page at `/` listing the
   server's endpoints (`/health`, `/api/status`,
   `/api/display`, `/api/setup`, `/api/log`,
@@ -34,6 +43,13 @@ and this project adheres to
 
 ### Changed
 
+- **Breaking layout DSL:** compound widgets
+  `current-conditions`, `forecast-day`, and
+  `today-hi-lo` have been removed. Compose the same
+  visual using atomic widgets + nested splits (see
+  the rewritten default `assets/layout.toml`). Any
+  custom `[dashboard]` TOML referencing the old
+  names must be updated.
 - **Breaking CLI:** `bellwether-web --frontend <path>`
   flag removed. The systemd unit, `deploy/README.md`,
   and PowerShell build script updated accordingly.

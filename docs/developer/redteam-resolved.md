@@ -5,6 +5,33 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-19 (feat — v0.17.0 atomic widgets)
+
+### RT-A — `fit_font_px` could silently render unreadable glyphs
+**Category:** Correctness / UX
+**Description:** A long `label` on `temp-high`/`temp-low` in a narrow cell collapsed the width-candidate font size to 1-2 px (only clamped to `.max(1)`), producing effectively-invisible text.
+**Fix:** Added `MIN_LEGIBLE_PX = 8` floor applied after choosing min(from_h, from_w) in `fit_font_px`. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### RT-B — Hidden data-source split for `DaySelector::Today`
+**Category:** Correctness / documentation
+**Description:** `Condition`/`WeatherIcon` read from `model.current` while `TempHigh`/`TempLow` read from `model.today`. The two `Option`s are independent so a `day = "today"` layout can show a live icon next to em-dash hi/lo (or vice versa).
+**Fix:** Added a type-level doc block on `DaySelector::Today` explaining the split. Kept the split intentionally — "icon right now" and "today's high" are genuinely different queries — but made it discoverable. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+### RT-C — `weather-icon` emitted empty string for missing data
+**Category:** Correctness / UX consistency
+**Description:** Out-of-range `day = N` or missing `current` rendered `String::new()` while sibling text widgets showed "—", breaking the module-top "every optional field renders an em-dash placeholder" convention.
+**Fix:** `render_weather_icon` now emits a centred em-dash when `condition` is `None`. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### RT-D — `DaySelector` string match was case-sensitive
+**Category:** Correctness / UX
+**Description:** Only exact `"today"` parsed; `"Today"` / `"TODAY"` produced confusing errors despite being the most natural capitalisation in prose.
+**Fix:** `s.eq_ignore_ascii_case("today")` in `DaySelector::deserialize`. `crates/bellwether/src/dashboard/layout/mod.rs`.
+
+### RT-E — Legacy compound-widget TOMLs failed with opaque serde error
+**Category:** Migration UX
+**Description:** After the compound variants (`current-conditions`, `forecast-day`, `today-hi-lo`) were deleted, existing user configs hit serde's generic "data did not match any variant of untagged enum Node" — no pointer to CHANGELOG or migration path. User ran straight into this on first use.
+**Fix:** Added `ConfigError::LegacyCompoundWidget` with a dedicated migration message; `parse_and_validate` runs a substring scan of the raw TOML on parse failure and surfaces the pointed error when any legacy name appears. `crates/bellwether/src/config/mod.rs`.
+
 ## 2026-04-19 (feat — v0.15.0 inline `[dashboard]` layout)
 
 ### RT-110 — `expect("layout validated")` in publish tick panicked the loop

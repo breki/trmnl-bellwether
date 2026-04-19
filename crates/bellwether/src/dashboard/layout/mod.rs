@@ -173,10 +173,101 @@ impl Child {
     }
 }
 
+/// Selects which day a weather-domain widget should
+/// read from. Parsed from either `day = "today"` or a
+/// numeric `day = N` in TOML. String matching is
+/// case-insensitive (`"Today"` / `"TODAY"` also work).
+///
+/// ## Data-source semantics for `Today`
+///
+/// `DaySelector::Today` resolves to different places in
+/// the [`DashboardModel`](crate::dashboard::model::DashboardModel)
+/// depending on the widget:
+///
+/// - [`WidgetKind::WeatherIcon`] and
+///   [`WidgetKind::Condition`] read from
+///   `model.current.condition` (the *now* reading from
+///   Home Assistant).
+/// - [`WidgetKind::TempHigh`] and [`WidgetKind::TempLow`]
+///   read from `model.today.high_c` /
+///   `model.today.low_c` (the *day summary* derived
+///   from the forecast).
+///
+/// These two `Option`s are independent: Home Assistant
+/// can be reachable while the forecast provider isn't
+/// (or the reverse). The split is intentional — "the
+/// icon right now" and "today's high" are genuinely
+/// different queries — but means a `day = "today"`
+/// layout can show, e.g., a live icon next to an
+/// em-dash hi/lo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaySelector {
+    /// The current reading / today's summary (see the
+    /// type-level doc for which widgets read which
+    /// `DashboardModel` field).
+    Today,
+    /// Forecast day at the given offset (0 = first
+    /// forecast tile, etc.).
+    Offset(u8),
+}
+
+impl<'de> Deserialize<'de> for DaySelector {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Str(String),
+            Num(u8),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Str(s) if s.eq_ignore_ascii_case("today") => Ok(Self::Today),
+            Raw::Str(s) => Err(serde::de::Error::custom(format!(
+                "day must be \"today\" or a non-negative integer, got {s:?}"
+            ))),
+            Raw::Num(n) => Ok(Self::Offset(n)),
+        }
+    }
+}
+
+/// Zero-sized marker for widgets that are meaningful
+/// only for `day = "today"` (currently [`WidgetKind::TempNow`]
+/// and [`WidgetKind::FeelsLike`]). Accepts the literal
+/// `day = "today"` in TOML; rejects numeric offsets at
+/// deserialization time with a descriptive error. Also
+/// accepts the field being absent via [`Default`], so a
+/// terse `widget = "temp-now"` still parses.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TodayOnly;
+
+impl<'de> Deserialize<'de> for TodayOnly {
+    fn deserialize<D>(d: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        match DaySelector::deserialize(d)? {
+            DaySelector::Today => Ok(Self),
+            DaySelector::Offset(n) => Err(serde::de::Error::custom(format!(
+                "this widget is today-only; `day = {n}` is not supported. \
+                 Use a different widget (e.g. `temp-high`) for forecast days."
+            ))),
+        }
+    }
+}
+
 /// Strongly-typed widget enumeration. Every kind the
 /// dashboard can render appears here with its
 /// parameters. Tagged by the `widget` field in TOML
 /// (kebab-cased).
+///
+/// Weather-domain widgets carry a [`DaySelector`] so a
+/// user `layout.toml` can place e.g. the high-temp
+/// reading for `day = "today"` next to a forecast
+/// day's condition at `day = 1`. No compound "current
+/// conditions" / "forecast tile" widgets exist — layouts
+/// compose them from atomic widgets.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "widget", rename_all = "kebab-case")]
 pub enum WidgetKind {
@@ -191,25 +282,70 @@ pub enum WidgetKind {
     Clock,
     /// Battery outline + percentage.
     Battery,
-    /// Large current-conditions panel: icon, temp,
-    /// condition label, feels-like line.
-    CurrentConditions,
+    /// Weather icon for the selected day.
+    WeatherIcon {
+        /// Which day's condition to render.
+        day: DaySelector,
+    },
+    /// Big current temperature (now reading). Today-only
+    /// because forecast days don't have a single "now"
+    /// temperature — use `temp-high` / `temp-low` for
+    /// forecast tiles.
+    TempNow {
+        /// Must be `"today"` (or absent). Enforced at
+        /// load time so a layout using `day = 2` fails
+        /// with a clear error instead of silently
+        /// rendering the current temperature in a
+        /// forecast tile.
+        #[serde(default)]
+        day: TodayOnly,
+    },
+    /// Condition label for the selected day ("Sunny",
+    /// "Partly cloudy", ...).
+    Condition {
+        /// Which day's condition to label.
+        day: DaySelector,
+    },
+    /// "Feels like N°" line for current conditions.
+    /// Today-only: the forecast model has no apparent-
+    /// temperature field per day.
+    FeelsLike {
+        /// Must be `"today"` (or absent). See
+        /// [`Self::TempNow`] for rationale.
+        #[serde(default)]
+        day: TodayOnly,
+    },
+    /// Weekday abbreviation for the selected day. For
+    /// `day = "today"` renders the literal "Today".
+    DayName {
+        /// Which day's name to render.
+        day: DaySelector,
+    },
+    /// High temperature for the selected day. Renders
+    /// as `"N°"` by default, or `"{label} N°"` when
+    /// `label` is supplied (`label = "H"` → `"H 12°"`).
+    TempHigh {
+        /// Which day's high temperature to read.
+        day: DaySelector,
+        /// Optional text prefix, e.g. `"H"`.
+        #[serde(default)]
+        label: Option<String>,
+    },
+    /// Low temperature for the selected day, analogous
+    /// to [`Self::TempHigh`].
+    TempLow {
+        /// Which day's low temperature to read.
+        day: DaySelector,
+        /// Optional text prefix, e.g. `"L"`.
+        #[serde(default)]
+        label: Option<String>,
+    },
     /// Wind-from-direction + speed cell.
     Wind,
     /// Gust speed cell.
     Gust,
     /// Humidity percentage cell.
     Humidity,
-    /// One forecast tile: weekday, icon, H/L line.
-    ForecastDay {
-        /// Day offset from today (0 = today, 1 =
-        /// tomorrow, ...). Renderer silently ignores
-        /// out-of-range offsets and renders a
-        /// placeholder tile.
-        offset: u8,
-    },
-    /// Today's high/low summary in the footer.
-    TodayHiLo,
     /// Sunrise time.
     Sunrise,
     /// Sunset time.

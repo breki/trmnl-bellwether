@@ -141,35 +141,44 @@ fn forecast_row_renders_three_tiles_with_highs_and_lows() {
     for label in ["Sat", "Sun", "Mon"] {
         assert!(svg.contains(label), "day label {label} missing");
     }
-    assert!(svg.contains("H 14° L 7°"));
-    assert!(svg.contains("H 11° L 5°"));
-    assert!(svg.contains("H 9° L 3°"));
+    // Atomic widgets render each hi/lo separately with
+    // an "H"/"L" prefix from the default layout.
+    for (hi, lo) in [(14, 7), (11, 5), (9, 3)] {
+        assert!(
+            svg.contains(&format!("H {hi}°")),
+            "missing H {hi}\u{b0}: {svg}",
+        );
+        assert!(
+            svg.contains(&format!("L {lo}°")),
+            "missing L {lo}\u{b0}: {svg}",
+        );
+    }
 }
 
 #[test]
 fn forecast_tile_with_none_day_keeps_weekday_label() {
-    // Missing data must not drop the weekday header
-    // — otherwise a user seeing "Sat, —, Mon" can't
-    // tell whether Sunday or Tuesday is the missing
-    // day. Placeholder body replaces icon + H/L only.
+    // Missing forecast data must not drop the
+    // weekday header — day-name widget reads from
+    // ctx.model.day_weekdays (always populated) so
+    // the operator can still see *which* day is
+    // missing.
     let mut model = sample_model();
     model.days[1] = None;
     let svg = build_svg(&model, noon());
-    // All three weekdays still rendered.
     assert!(svg.contains(">Sat<"));
     assert!(svg.contains(">Sun<"));
     assert!(svg.contains(">Mon<"));
-    // The missing tile's icon group is dropped, so we
-    // expect only two forecast-row icon groups (scale
-    // 1.6), plus the current-conditions icon (scale
-    // 2.08) which is unaffected.
-    assert_eq!(svg.matches("scale(1.6)").count(), 2);
+    // The missing day's hi/lo render as em-dashes.
+    assert!(svg.contains(">H —<") || svg.contains(">L —<"));
 }
 
 #[test]
 fn footer_shows_today_highlow_sunrise_sunset() {
     let svg = build_svg(&sample_model(), noon());
-    assert!(svg.contains("Today H 15° L 8°"));
+    // Default layout labels today's high as
+    // "Today H" via the `label` field and low as "L".
+    assert!(svg.contains("Today H 15°"));
+    assert!(svg.contains("L 8°"));
     assert!(svg.contains("Sunrise 06:12"));
     assert!(svg.contains("Sunset 19:38"));
 }
@@ -179,7 +188,7 @@ fn footer_shows_placeholder_when_today_summary_missing() {
     let mut model = sample_model();
     model.today = None;
     let svg = build_svg(&model, noon());
-    assert!(svg.contains("Today —"));
+    assert!(svg.contains("Today H —"));
     assert!(svg.contains("Sunrise —"));
     assert!(svg.contains("Sunset —"));
 }
@@ -194,26 +203,22 @@ fn footer_shows_placeholder_when_astro_unavailable() {
         today.sunset_local = None;
     }
     let svg = build_svg(&model, noon());
-    assert!(svg.contains("Today H 15° L 8°"));
+    assert!(svg.contains("Today H 15°"));
     assert!(svg.contains("Sunrise —"));
     assert!(svg.contains("Sunset —"));
 }
 
 #[test]
-fn current_panel_collapses_to_placeholder_when_temp_missing() {
+fn current_panel_renders_placeholders_when_current_missing() {
     let mut model = sample_model();
     model.current = None;
     let svg = build_svg(&model, noon());
-    // Big temp, condition label, and feels-like text
-    // all omitted. A meaningful "No current reading"
-    // message takes their place, rather than a lone
-    // 120-px em-dash floating in empty space.
+    // Atomic widgets each render their own placeholder
+    // instead of a composite "No current reading"
+    // banner.
     assert!(!svg.contains("Partly cloudy"));
-    assert!(!svg.contains("Feels like"));
-    assert!(
-        svg.contains("No current reading"),
-        "expected fallback label, got: {svg}",
-    );
+    // temp-now → "—"; feels-like → "Feels like —".
+    assert!(svg.contains("Feels like —"));
 }
 
 #[test]
@@ -293,6 +298,38 @@ fn battery_fill_rounds_not_truncates() {
         zero_fills, 0,
         "expected no width=\"0\" rect at 0 %, got {svg_0}",
     );
+}
+
+#[test]
+fn day_name_today_renders_literal_today_word() {
+    // `day = "today"` on a day-name widget emits the
+    // word "Today" rather than a weekday abbreviation,
+    // so the current-conditions column reads naturally
+    // in layouts that use `day-name` alongside
+    // `temp-now`.
+    let layout_src = r#"
+canvas = { width = 200, height = 40 }
+widget = "day-name"
+day = "today"
+"#;
+    let layout: super::super::layout::Layout =
+        toml::from_str(layout_src).unwrap();
+    let svg = build_svg_with_layout(&layout, &sample_model(), noon()).unwrap();
+    assert!(svg.contains(">Today<"), "expected 'Today' label: {svg}");
+}
+
+#[test]
+fn temp_high_with_label_prefixes_label_and_degree() {
+    let layout_src = r#"
+canvas = { width = 200, height = 40 }
+widget = "temp-high"
+day = 0
+label = "H"
+"#;
+    let layout: super::super::layout::Layout =
+        toml::from_str(layout_src).unwrap();
+    let svg = build_svg_with_layout(&layout, &sample_model(), noon()).unwrap();
+    assert!(svg.contains(">H 14°<"), "expected 'H 14°': {svg}");
 }
 
 #[test]

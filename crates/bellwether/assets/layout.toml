@@ -12,9 +12,10 @@
 #
 # Dividers: set `divider = true` on a split to reserve
 # 2 px between adjacent children and emit a line there.
-# The default dashboard draws horizontal band-dividers
-# at the top level and vertical column-dividers inside
-# the meteorology strip.
+#
+# Weather-domain widgets take a `day` selector:
+# `day = "today"` reads the current / today's summary,
+# numeric `day = 0..N` reads forecast tile N.
 
 canvas = { width = 800, height = 480 }
 
@@ -22,7 +23,6 @@ split = "vertical"
 divider = true
 
 # Header band: brand, title, clock, battery.
-# 50 px tall — fits the 28 px header text plus padding.
 [[children]]
 size = 50
 split = "horizontal"
@@ -33,13 +33,19 @@ children = [
     { size = 150, widget = "battery" },
 ]
 
-# Current-conditions band: icon + big temperature +
-# condition label + feels-like. Reduced from 140 to
-# 132 px to absorb the 8 px of vertical dividers
-# introduced at the top level.
+# Current-conditions band: icon · big temp · condition /
+# feels-like stacked on the right.
 [[children]]
 size = 132
-widget = "current-conditions"
+split = "horizontal"
+children = [
+    { size = 150, widget = "weather-icon", day = "today" },
+    { size = 250, widget = "temp-now" },
+    { flex = 1, split = "vertical", children = [
+        { flex = 3, widget = "condition",  day = "today" },
+        { flex = 2, widget = "feels-like" },
+    ] },
+]
 
 # Meteorology strip: wind, gust, humidity.
 [[children]]
@@ -52,22 +58,47 @@ children = [
     { flex = 1, widget = "humidity" },
 ]
 
-# Forecast row: three day tiles.
+# Forecast row: three day tiles, each a vertical stack
+# of (day-name, weather-icon, high/low row).
 [[children]]
 size = 190
 split = "horizontal"
 children = [
-    { flex = 1, widget = "forecast-day", offset = 0 },
-    { flex = 1, widget = "forecast-day", offset = 1 },
-    { flex = 1, widget = "forecast-day", offset = 2 },
+    { flex = 1, split = "vertical", children = [
+        { size = 40, widget = "day-name",     day = 0 },
+        { flex = 1,  widget = "weather-icon", day = 0 },
+        { size = 40, split = "horizontal", children = [
+            { flex = 1, widget = "temp-high", day = 0, label = "H" },
+            { flex = 1, widget = "temp-low",  day = 0, label = "L" },
+        ] },
+    ] },
+    { flex = 1, split = "vertical", children = [
+        { size = 40, widget = "day-name",     day = 1 },
+        { flex = 1,  widget = "weather-icon", day = 1 },
+        { size = 40, split = "horizontal", children = [
+            { flex = 1, widget = "temp-high", day = 1, label = "H" },
+            { flex = 1, widget = "temp-low",  day = 1, label = "L" },
+        ] },
+    ] },
+    { flex = 1, split = "vertical", children = [
+        { size = 40, widget = "day-name",     day = 2 },
+        { flex = 1,  widget = "weather-icon", day = 2 },
+        { size = 40, split = "horizontal", children = [
+            { flex = 1, widget = "temp-high", day = 2, label = "H" },
+            { flex = 1, widget = "temp-low",  day = 2, label = "L" },
+        ] },
+    ] },
 ]
 
-# Footer: today high/low, sunrise, sunset.
+# Footer: today hi/lo, sunrise, sunset.
 [[children]]
 size = 50
 split = "horizontal"
 children = [
-    { size = 380, widget = "today-hi-lo" },
+    { size = 380, split = "horizontal", children = [
+        { flex = 1, widget = "temp-high", day = "today", label = "Today H" },
+        { flex = 1, widget = "temp-low",  day = "today", label = "L" },
+    ] },
     { size = 210, widget = "sunrise" },
     { size = 210, widget = "sunset" },
 ]

@@ -35,11 +35,39 @@ use chrono::{NaiveTime, Timelike, Weekday};
 use super::classify::{Compass8, Condition};
 use super::icons;
 use super::layout::{
-    Direction, Layout, LayoutError, PlacedDivider, Rect, WidgetKind,
+    DaySelector, Direction, Layout, LayoutError, PlacedDivider, Rect,
+    WidgetKind,
 };
-use super::model::{
-    CurrentConditions, DashboardModel, DaySummary, TodaySummary,
-};
+use super::model::DashboardModel;
+
+/// A unified view of "the day referenced by a
+/// `DaySelector`". Centralises the per-day projection
+/// so the renderer stops repeating the same
+/// match-on-selector skeleton for every field.
+#[derive(Debug, Clone, Copy)]
+struct DayView {
+    condition: Option<Condition>,
+    high_c: Option<i32>,
+    low_c: Option<i32>,
+}
+
+fn resolve_day(day: DaySelector, model: &DashboardModel) -> DayView {
+    match day {
+        DaySelector::Today => DayView {
+            condition: model.current.as_ref().map(|c| c.condition),
+            high_c: model.today.as_ref().and_then(|t| t.high_c),
+            low_c: model.today.as_ref().and_then(|t| t.low_c),
+        },
+        DaySelector::Offset(n) => {
+            let day = model.days.get(usize::from(n)).and_then(Option::as_ref);
+            DayView {
+                condition: day.map(|d| d.condition),
+                high_c: day.and_then(|d| d.high_c),
+                low_c: day.and_then(|d| d.low_c),
+            }
+        }
+    }
+}
 
 /// Horizontal padding applied to divider lines so they
 /// don't run edge-to-edge.
@@ -67,25 +95,8 @@ const CLOCK_PX: u32 = 28;
 /// battery icon.
 const BATTERY_PCT_PX: u32 = 22;
 
-/// Font size for the big current-conditions
-/// temperature.
-const CURRENT_TEMP_PX: u32 = 120;
-/// Font size for the condition label
-/// ("Partly cloudy", "Sunny", …).
-const CONDITION_LABEL_PX: u32 = 44;
-/// Font size for the "Feels like 8°" line beneath
-/// the condition label.
-const FEELS_LIKE_PX: u32 = 26;
-
 /// Font size for each meteorology-strip cell.
 const METEO_CELL_PX: u32 = 28;
-
-/// Font size for each forecast tile's weekday
-/// abbreviation.
-const DAY_LABEL_PX: u32 = 32;
-/// Font size for each forecast tile's "H .. L .."
-/// high/low line.
-const DAY_HIGH_LOW_PX: u32 = 28;
 
 /// Font size for the footer items.
 const FOOTER_PX: u32 = 22;
@@ -206,9 +217,29 @@ fn render_widget(
         WidgetKind::HeaderTitle { text } => render_header_title(bounds, text),
         WidgetKind::Clock => render_clock(bounds, ctx.now_local),
         WidgetKind::Battery => render_battery(bounds, ctx.model.battery_pct),
-        WidgetKind::CurrentConditions => {
-            render_current_conditions(bounds, current)
+        WidgetKind::WeatherIcon { day } => {
+            render_weather_icon(bounds, resolve_day(*day, ctx.model).condition)
         }
+        WidgetKind::TempNow { .. } => {
+            render_temp_now(bounds, current.map(|c| c.temp_c))
+        }
+        WidgetKind::Condition { day } => {
+            render_condition(bounds, resolve_day(*day, ctx.model).condition)
+        }
+        WidgetKind::FeelsLike { .. } => {
+            render_feels_like(bounds, current.map(|c| c.feels_like_c))
+        }
+        WidgetKind::DayName { day } => render_day_name(bounds, ctx, *day),
+        WidgetKind::TempHigh { day, label } => render_labelled_temp(
+            bounds,
+            resolve_day(*day, ctx.model).high_c,
+            label.as_deref(),
+        ),
+        WidgetKind::TempLow { day, label } => render_labelled_temp(
+            bounds,
+            resolve_day(*day, ctx.model).low_c,
+            label.as_deref(),
+        ),
         WidgetKind::Wind => render_meteo_cell(
             bounds,
             &current.map_or_else(
@@ -230,21 +261,6 @@ fn render_widget(
                 |c| format_humidity_cell(c.humidity_pct),
             ),
         ),
-        WidgetKind::ForecastDay { offset } => {
-            let idx = usize::from(*offset);
-            // Out-of-range offsets render a "—" tile
-            // rather than panic — the `days` /
-            // `day_weekdays` arrays are fixed-length by
-            // DashboardModel contract, but the offset
-            // is a u8 loaded from user TOML.
-            match (ctx.model.days.get(idx), ctx.model.day_weekdays.get(idx)) {
-                (Some(day), Some(weekday)) => {
-                    forecast_tile(bounds, day.as_ref(), *weekday)
-                }
-                _ => forecast_tile_out_of_range(bounds),
-            }
-        }
-        WidgetKind::TodayHiLo => render_today_hi_lo(bounds, today),
         WidgetKind::Sunrise => render_footer_astro(
             bounds,
             "Sunrise",
@@ -454,88 +470,184 @@ fn battery_fill_rect(outline_x: u32, outline_y: u32, pct: u8) -> String {
     )
 }
 
-// ─── Current-conditions widget ─────────────────────
+// ─── Atomic weather widgets ────────────────────────
+//
+// Every text widget below auto-sizes its glyph height
+// to a fixed fraction of the assigned `Rect`. Visual
+// weight is therefore entirely a function of the
+// widget's bounds in the layout, which lets
+// `layout.toml` tune emphasis without widget-level
+// font knobs.
 
-fn render_current_conditions(
-    bounds: Rect,
-    current: Option<&CurrentConditions>,
-) -> String {
-    match current {
-        Some(c) => {
-            let icon = current_icon(bounds, c.condition);
-            let temp = current_temperature(bounds, c.temp_c);
-            let condition = current_condition_label(bounds, c.condition);
-            let feels = current_feels_like(bounds, c.feels_like_c);
-            format!("{icon}{temp}{condition}{feels}")
-        }
-        None => current_temperature_placeholder(bounds),
-    }
+/// Fraction of bounds height used as the font-size for
+/// the "big number" widgets (`temp-now`). Leaves room
+/// for glyph descenders.
+const FONT_FRACTION_BIG: u32 = 85;
+/// Fraction of bounds height used for medium text
+/// widgets (`day-name`, `temp-high`, `temp-low`,
+/// `condition`).
+const FONT_FRACTION_MEDIUM: u32 = 60;
+/// Fraction of bounds height used for compact text
+/// widgets (`feels-like`).
+const FONT_FRACTION_SMALL: u32 = 42;
+/// Fraction of bounds' *smaller* dimension used to
+/// pick the icon scale. Icons are authored at 48 user
+/// units, so scale = min(w,h) * fraction / 100 / 48.
+const ICON_FRACTION: u32 = 85;
+
+/// Average glyph width as a percentage of font size
+/// for the bundled Atkinson Hyperlegible face.
+/// Slightly generous so short strings don't overflow
+/// edge-case bounds. Used only by [`fit_font_px`] for
+/// the cap-by-width heuristic.
+const AVG_GLYPH_WIDTH_PCT: u64 = 60;
+
+/// Minimum legible font size in pixels. Acts as a
+/// floor on the width-based heuristic so a long label
+/// in a narrow cell either shrinks to this size or
+/// spills over (rather than rendering at 1-2 px and
+/// silently becoming invisible).
+const MIN_LEGIBLE_PX: u32 = 8;
+
+/// Pick a font size that fits `content` inside `bounds`
+/// on both axes. The height-based candidate is
+/// `bounds.h * fraction / 100` (auto-fit to bounds
+/// height). The width-based candidate is the largest
+/// font whose estimated text width — `n_chars × font ×
+/// AVG_GLYPH_WIDTH_PCT%` — still fits `bounds.w`. The
+/// smaller of the two wins, then the result is
+/// clamped to [`MIN_LEGIBLE_PX`] so an overlong label
+/// doesn't reduce to an invisible 1 px glyph. All
+/// arithmetic is performed in `u64` and narrowed at
+/// the end so pathological (but TOML-trusted) widget
+/// geometry can't wrap.
+fn fit_font_px(bounds: Rect, h_fraction: u32, content: &str) -> u32 {
+    let h = u64::from(bounds.h);
+    let w = u64::from(bounds.w);
+    let frac = u64::from(h_fraction);
+    let n_chars = u64::try_from(content.chars().count())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    let from_h = (h.saturating_mul(frac) / 100).max(1);
+    // Width candidate: largest font s.t. n_chars * s *
+    // AVG_GLYPH_WIDTH_PCT / 100 <= w
+    //   → s <= w * 100 / (n_chars * AVG_GLYPH_WIDTH_PCT).
+    let denom = n_chars.saturating_mul(AVG_GLYPH_WIDTH_PCT).max(1);
+    let from_w = (w.saturating_mul(100) / denom).max(1);
+    let chosen = from_h.min(from_w);
+    let narrowed = u32::try_from(chosen).unwrap_or(u32::MAX);
+    narrowed.max(MIN_LEGIBLE_PX)
 }
 
-fn current_icon(bounds: Rect, condition: Condition) -> String {
-    // Icon authored at 48 user units; scale to ≈100 px
-    // so it sits comfortably on the band's left third.
-    // Translation is offset 30 px right and 20 px down
-    // from the band origin.
+fn centered_baseline_y(bounds: Rect, font: u32) -> u32 {
+    // Approximate a visually-centred baseline: place
+    // the baseline ~75 % down the glyph so the
+    // ascender-to-descender span straddles the bounds'
+    // midline.
+    let centre = bounds.y + bounds.h / 2;
+    centre + font * 35 / 100
+}
+
+fn render_centered_text(bounds: Rect, size_px: u32, content: &str) -> String {
+    text(
+        bounds.x + bounds.w / 2,
+        centered_baseline_y(bounds, size_px),
+        size_px,
+        "middle",
+        "",
+        content,
+    )
+}
+
+fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
+    let Some(condition) = condition else {
+        // No data → emit a centred em-dash placeholder
+        // so the cell matches the missing-data
+        // convention used by every other widget
+        // (documented at module top).
+        let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, PLACEHOLDER);
+        return render_centered_text(bounds, size, PLACEHOLDER);
+    };
+    let min_dim = bounds.w.min(bounds.h);
+    // Author-space → user-space: each icon is drawn in
+    // a 48-unit box, so dividing by 48 would map scale
+    // 1.0 to 48 px. Multiply by the chosen fraction of
+    // min_dim so the icon fills the available square.
+    let scale_num = min_dim * ICON_FRACTION;
+    let scale_denom = 100 * 48;
+    // Translate so the scaled icon's top-left sits at
+    // the bounds' centre minus half the scaled size.
+    let scaled_size = scale_num / 100;
+    let tx = bounds.x + bounds.w.saturating_sub(scaled_size) / 2;
+    let ty = bounds.y + bounds.h.saturating_sub(scaled_size) / 2;
+    let scale_fmt =
+        format!("{:.4}", f64::from(scale_num) / f64::from(scale_denom));
     format!(
-        concat!(
-            "<g transform=\"translate({tx} {ty}) scale(2.08)\">",
-            "{icon}",
-            "</g>",
-        ),
-        tx = bounds.x + 30,
-        ty = bounds.y + 20,
+        "<g transform=\"translate({tx} {ty}) scale({scale})\">{icon}</g>",
+        tx = tx,
+        ty = ty,
+        scale = scale_fmt,
         icon = icons::icon_for(condition),
     )
 }
 
-fn current_temperature(bounds: Rect, temp_c: f64) -> String {
-    text(
-        bounds.x + 150,
-        bounds.y + 110,
-        CURRENT_TEMP_PX,
-        "start",
-        "",
-        &format!("{}°", round_i32(temp_c)),
-    )
+fn render_temp_now(bounds: Rect, temp_c: Option<f64>) -> String {
+    let content = temp_c.map_or_else(
+        || PLACEHOLDER.to_owned(),
+        |t| format!("{}°", round_i32(t)),
+    );
+    let size = fit_font_px(bounds, FONT_FRACTION_BIG, &content);
+    render_centered_text(bounds, size, &content)
 }
 
-fn current_temperature_placeholder(bounds: Rect) -> String {
-    // The current band is 140 px tall; a lone 120-px
-    // em-dash reads as visual noise. Use a smaller
-    // explicit label centred in the band instead, so
-    // the operator understands "no current reading"
-    // rather than "the system rendered garbage".
-    text(
-        bounds.x + bounds.w / 2,
-        bounds.y + 80,
-        CONDITION_LABEL_PX,
-        "middle",
-        "",
-        "No current reading",
-    )
+fn render_condition(bounds: Rect, condition: Option<Condition>) -> String {
+    let content = condition.map_or(PLACEHOLDER, Condition::label);
+    let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, content);
+    render_centered_text(bounds, size, content)
 }
 
-fn current_condition_label(bounds: Rect, condition: Condition) -> String {
-    text(
-        bounds.x + 420,
-        bounds.y + 65,
-        CONDITION_LABEL_PX,
-        "start",
-        "",
-        condition.label(),
-    )
+fn render_feels_like(bounds: Rect, feels_like_c: Option<f64>) -> String {
+    let content = feels_like_c.map_or_else(
+        || format!("Feels like {PLACEHOLDER}"),
+        |t| format!("Feels like {}°", round_i32(t)),
+    );
+    let size = fit_font_px(bounds, FONT_FRACTION_SMALL, &content);
+    render_centered_text(bounds, size, &content)
 }
 
-fn current_feels_like(bounds: Rect, feels_like_c: f64) -> String {
-    text(
-        bounds.x + 420,
-        bounds.y + 110,
-        FEELS_LIKE_PX,
-        "start",
-        "",
-        &format!("Feels like {}°", round_i32(feels_like_c)),
-    )
+fn render_day_name(
+    bounds: Rect,
+    ctx: &RenderContext<'_>,
+    day: DaySelector,
+) -> String {
+    let content = match day {
+        DaySelector::Today => "Today".to_owned(),
+        DaySelector::Offset(n) => {
+            ctx.model.day_weekdays.get(usize::from(n)).map_or_else(
+                || PLACEHOLDER.to_owned(),
+                |w| weekday_label(*w).to_owned(),
+            )
+        }
+    };
+    let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, &content);
+    render_centered_text(bounds, size, &content)
+}
+
+fn render_labelled_temp(
+    bounds: Rect,
+    value: Option<i32>,
+    label: Option<&str>,
+) -> String {
+    let number = match value {
+        Some(n) => format!("{n}°"),
+        None => PLACEHOLDER.to_owned(),
+    };
+    let content = match label {
+        Some(prefix) if !prefix.is_empty() => format!("{prefix} {number}"),
+        _ => number,
+    };
+    let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, &content);
+    render_centered_text(bounds, size, &content)
 }
 
 // ─── Meteorology strip ─────────────────────────────
@@ -591,45 +703,6 @@ fn format_labelled_number(
     }
 }
 
-// ─── Forecast row ───────────────────────────────────
-
-fn forecast_tile(
-    bounds: Rect,
-    day: Option<&DaySummary>,
-    weekday: Weekday,
-) -> String {
-    // The weekday header is always drawn, even when
-    // the data row is a placeholder, so an operator
-    // can see *which* day is missing instead of a
-    // dangling em-dash between two real days.
-    let centre_x = bounds.x + bounds.w / 2;
-    let label = day_label(bounds, centre_x, weekday);
-    let body = match day {
-        Some(d) => {
-            let icon = day_icon(bounds, centre_x, d.condition);
-            let high_low = day_high_low(bounds, centre_x, d.high_c, d.low_c);
-            format!("{icon}{high_low}")
-        }
-        None => day_placeholder(bounds, centre_x),
-    };
-    format!("{label}{body}")
-}
-
-fn forecast_tile_out_of_range(bounds: Rect) -> String {
-    let centre_x = bounds.x + bounds.w / 2;
-    // Centre a placeholder vertically — this path only
-    // fires if `layout.toml` specifies an out-of-range
-    // `ForecastDay.offset`.
-    text(
-        centre_x,
-        bounds.y + bounds.h / 2,
-        DAY_HIGH_LOW_PX,
-        "middle",
-        "",
-        PLACEHOLDER,
-    )
-}
-
 /// Three-letter English abbreviation for a weekday.
 /// Authoritative source for the dashboard's weekday
 /// labels — kept as a match-based constant table
@@ -648,90 +721,7 @@ fn weekday_label(w: Weekday) -> &'static str {
     }
 }
 
-/// Baseline offsets within a forecast tile, expressed
-/// as fractions of the tile's height. The defaults
-/// reproduce the old 190-px band layout (label at
-/// y=280 → 21 % from band top, icon at y=300 → 32 %,
-/// H/L at y=412 → 91 %).
-fn day_label(bounds: Rect, centre_x: u32, weekday: Weekday) -> String {
-    text(
-        centre_x,
-        bounds.y + bounds.h * 21 / 100,
-        DAY_LABEL_PX,
-        "middle",
-        "",
-        weekday_label(weekday),
-    )
-}
-
-fn day_icon(bounds: Rect, centre_x: u32, condition: Condition) -> String {
-    // Tile icon at scale 1.6 → 77 × 77 px; anchored
-    // ~32 % from the band top, centred horizontally on
-    // the column.
-    let translate_x = i64::from(centre_x) - 38;
-    let translate_y = bounds.y + bounds.h * 32 / 100;
-    format!(
-        "<g transform=\"translate({tx} {ty}) scale(1.6)\">{icon}</g>",
-        tx = translate_x,
-        ty = translate_y,
-        icon = icons::icon_for(condition),
-    )
-}
-
-fn day_high_low(
-    bounds: Rect,
-    centre_x: u32,
-    high_c: Option<i32>,
-    low_c: Option<i32>,
-) -> String {
-    let content = format!(
-        "H {high} L {low}",
-        high = format_temp(high_c),
-        low = format_temp(low_c),
-    );
-    text(
-        centre_x,
-        bounds.y + bounds.h * 91 / 100,
-        DAY_HIGH_LOW_PX,
-        "middle",
-        "",
-        &content,
-    )
-}
-
-fn day_placeholder(bounds: Rect, centre_x: u32) -> String {
-    text(
-        centre_x,
-        bounds.y + bounds.h * 55 / 100,
-        DAY_HIGH_LOW_PX,
-        "middle",
-        "",
-        PLACEHOLDER,
-    )
-}
-
-fn format_temp(value: Option<i32>) -> String {
-    match value {
-        Some(n) => format!("{n}°"),
-        None => PLACEHOLDER.to_owned(),
-    }
-}
-
 // ─── Footer widgets ────────────────────────────────
-
-fn render_today_hi_lo(bounds: Rect, today: Option<&TodaySummary>) -> String {
-    let content = today.map_or_else(
-        || format!("Today {PLACEHOLDER}"),
-        |t| {
-            format!(
-                "Today H {high} L {low}",
-                high = format_temp(t.high_c),
-                low = format_temp(t.low_c),
-            )
-        },
-    );
-    footer_item(bounds, &content)
-}
 
 fn render_footer_astro(
     bounds: Rect,

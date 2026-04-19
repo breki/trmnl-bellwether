@@ -103,6 +103,24 @@ pub enum ConfigError {
     /// render tick.
     #[error("invalid [dashboard] layout: {0}")]
     InvalidDashboardLayout(#[from] crate::dashboard::layout::LayoutError),
+    /// The config TOML references one of the compound
+    /// widgets removed in v0.17.0
+    /// (`current-conditions`, `forecast-day`,
+    /// `today-hi-lo`). Detected by a substring scan of
+    /// the raw TOML on parse failure, so the user gets
+    /// a dedicated migration hint instead of serde's
+    /// generic "did not match any variant of untagged
+    /// enum Node".
+    #[error(
+        "config uses legacy compound widget {widget:?} (removed in \
+         v0.17.0). Rewrite with atomic widgets — see CHANGELOG.md \
+         and crates/bellwether/assets/layout.toml for the current \
+         shape."
+    )]
+    LegacyCompoundWidget {
+        /// The legacy widget name found in the raw TOML.
+        widget: &'static str,
+    },
 }
 
 /// Top-level configuration.
@@ -220,13 +238,37 @@ fn parse_and_validate(
     toml_text: &str,
     path: Option<&Path>,
 ) -> Result<Config, ConfigError> {
-    let cfg: Config =
-        toml::from_str(toml_text).map_err(|source| ConfigError::ParseToml {
+    let cfg: Config = toml::from_str(toml_text).map_err(|source| {
+        // If the raw TOML still references a widget
+        // kind removed in v0.17.0, surface a pointed
+        // migration error instead of serde's opaque
+        // "did not match any variant" message.
+        if let Some(legacy) = detect_legacy_compound_widget(toml_text) {
+            return ConfigError::LegacyCompoundWidget { widget: legacy };
+        }
+        ConfigError::ParseToml {
             path: path.map(Path::to_path_buf),
             source: Box::new(source),
-        })?;
+        }
+    })?;
     cfg.validate()?;
     Ok(cfg)
+}
+
+/// Scan the raw TOML for any of the compound widget
+/// names retired in v0.17.0. A plain substring check is
+/// fine — TOML parsing would have stopped at the first
+/// offending `widget = "..."` line anyway.
+fn detect_legacy_compound_widget(raw: &str) -> Option<&'static str> {
+    const LEGACY: &[&str] =
+        &["current-conditions", "forecast-day", "today-hi-lo"];
+    for name in LEGACY {
+        let needle = format!("widget = \"{name}\"");
+        if raw.contains(&needle) {
+            return Some(name);
+        }
+    }
+    None
 }
 
 impl fmt::Display for Config {
@@ -599,6 +641,33 @@ mod tests {
             matches!(err, ConfigError::InvalidDashboardLayout(_)),
             "expected InvalidDashboardLayout, got {err:?}"
         );
+    }
+
+    #[test]
+    fn legacy_current_conditions_widget_triggers_migration_error() {
+        let toml = r#"
+            [weather]
+            provider = "open_meteo"
+            lat = 0
+            lon = 0
+
+            [weather.open_meteo]
+
+            [trmnl]
+            mode = "byos"
+            public_image_base = "http://x/"
+
+            [dashboard]
+            canvas = { width = 800, height = 480 }
+            widget = "current-conditions"
+        "#;
+        let err = Config::from_toml_str(toml).unwrap_err();
+        match err {
+            ConfigError::LegacyCompoundWidget { widget } => {
+                assert_eq!(widget, "current-conditions");
+            }
+            other => panic!("expected LegacyCompoundWidget, got {other:?}"),
+        }
     }
 
     #[test]

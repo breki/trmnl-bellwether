@@ -32,23 +32,26 @@
 //! Deployments that leave the server exposed beyond a
 //! trusted LAN **should** set one.
 
+mod handlers;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+use handlers::{DEFAULT_UNCONFIGURED_API_KEY, FriendlyId};
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, Request, State};
-use axum::http::{HeaderValue, StatusCode, header};
-use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::extract::DefaultBodyLimit;
+use axum::middleware;
 use axum::routing::{get, post};
 use bellwether::publish::{DeviceTelemetry, ImageSink, SinkError};
 use serde::{Serialize, Serializer};
+
+use handlers::{display, log, require_access_token, serve_image, setup};
 
 /// Maximum request body size for `POST /api/log`.
 pub const MAX_LOG_BODY_BYTES: usize = 16 * 1024;
@@ -304,6 +307,15 @@ impl TrmnlState {
         self.default_refresh_interval
     }
 
+    /// Configured access token, if any. Returns `None`
+    /// when no token is required (LAN deployments where
+    /// the operator leaves `BELLWETHER_ACCESS_TOKEN`
+    /// unset).
+    #[must_use]
+    pub fn access_token(&self) -> Option<&str> {
+        self.access_token.as_deref()
+    }
+
     /// Merge fresh fields into the cached device
     /// telemetry. Called by the `/api/log` handler
     /// every time the device posts. Fields in `update`
@@ -346,149 +358,15 @@ impl ImageSink for TrmnlState {
     }
 }
 
-/// Response body for `GET /api/display`. Matches the
-/// fields the TRMNL OG firmware reads.
-#[derive(Debug, Serialize)]
-#[non_exhaustive]
-pub struct DisplayResponse {
-    /// Filename of the next image for the device.
-    pub filename: String,
-    /// Full URL to fetch the image.
-    pub image_url: String,
-    /// Seconds the device should sleep before the next
-    /// poll.
-    pub refresh_rate: RefreshInterval,
-    /// Whether the device should update firmware.
-    pub update_firmware: bool,
-    /// URL for the firmware binary. Omitted from JSON
-    /// when firmware update is not pending.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub firmware_url: Option<String>,
-    /// Whether the device should soft-reset.
-    pub reset_firmware: bool,
-    /// Firmware-defined status code; 0 = OK.
-    pub status: u16,
-}
-
-/// Handler: return the manifest for the next device
-/// poll. Returns `503 Service Unavailable` when no
-/// image has been rendered yet.
-pub async fn display(
-    State(state): State<TrmnlState>,
-) -> Result<Json<DisplayResponse>, StatusCode> {
-    let filename = state
-        .latest_filename()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-    let image_url = format!("{}/{}", state.public_image_base(), filename);
-    Ok(Json(DisplayResponse {
-        filename,
-        image_url,
-        refresh_rate: state.default_refresh_interval(),
-        update_firmware: false,
-        firmware_url: None,
-        reset_firmware: false,
-        status: 0,
-    }))
-}
-
-/// Handler: serve a rendered BMP. `Bytes` is
-/// refcounted, so this response body is zero-copy from
-/// the store. Returns `404` if the filename isn't in
-/// the store — and can't be anything outside the store
-/// because there's no filesystem lookup.
-pub async fn serve_image(
-    State(state): State<TrmnlState>,
-    Path(filename): Path<String>,
-) -> Response {
-    match state.get_image(&filename) {
-        Some(bytes) => (
-            StatusCode::OK,
-            [(header::CONTENT_TYPE, HeaderValue::from_static("image/bmp"))],
-            bytes,
-        )
-            .into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
-}
-
-/// Known fields the TRMNL OG firmware sends in its
-/// telemetry blob. Unknown fields still parse (as part
-/// of `extra`) and are only surfaced at the `DEBUG`
-/// level.
-#[derive(Debug, serde::Deserialize, Default)]
-struct TelemetryPayload {
-    #[serde(default)]
-    battery_voltage: Option<f32>,
-    #[serde(default)]
-    rssi: Option<i32>,
-    #[serde(default)]
-    fw_version: Option<String>,
-    #[serde(flatten)]
-    extra: std::collections::HashMap<String, serde_json::Value>,
-}
-
-/// Handler: accept a small telemetry blob. Logs
-/// known fields as structured attributes at `INFO`;
-/// logs the full payload at `DEBUG` for
-/// investigating unusual shapes without flooding
-/// normal-level logs. Body size is capped at
-/// [`MAX_LOG_BODY_BYTES`] via the route's
-/// [`DefaultBodyLimit`] layer.
-///
-/// Also caches the parsed `battery_voltage` on
-/// `TrmnlState` so the next publish tick's rendered
-/// dashboard can reflect current device telemetry.
-async fn log(
-    State(state): State<TrmnlState>,
-    Json(payload): Json<TelemetryPayload>,
-) -> StatusCode {
-    tracing::info!(
-        battery_voltage = ?payload.battery_voltage,
-        rssi = ?payload.rssi,
-        fw_version = ?payload.fw_version,
-        extra_keys = payload.extra.len(),
-        "trmnl device log",
-    );
-    if !payload.extra.is_empty() {
-        // Only at DEBUG so an unusual field won't
-        // pollute normal-level logs.
-        tracing::debug!(
-            extra = ?payload.extra,
-            "trmnl device log extras",
-        );
-    }
-    state.update_telemetry(DeviceTelemetry {
-        battery_voltage: payload.battery_voltage.map(f64::from),
-    });
-    StatusCode::NO_CONTENT
-}
-
-/// Middleware: require the configured `Access-Token`
-/// header on every request. If the state has no token
-/// set, requests pass through untouched.
-pub async fn require_access_token(
-    State(state): State<TrmnlState>,
-    req: Request,
-    next: Next,
-) -> Response {
-    let Some(expected) = state.access_token.as_ref() else {
-        return next.run(req).await;
-    };
-    let supplied = req
-        .headers()
-        .get("access-token")
-        .and_then(|v| v.to_str().ok());
-    if supplied != Some(expected.as_ref()) {
-        return StatusCode::UNAUTHORIZED.into_response();
-    }
-    next.run(req).await
-}
-
 /// All TRMNL BYOS routes, pre-composed with the
 /// [`require_access_token`] middleware. The
 /// `DefaultBodyLimit` on `/api/log` is applied here so
 /// callers can't forget it.
 pub fn router(state: TrmnlState) -> Router {
+    // Routes added BEFORE `route_layer` are wrapped by
+    // `require_access_token`. `/api/setup` is added
+    // AFTER the layer so it remains reachable by a
+    // fresh device that doesn't yet have an api_key.
     Router::new()
         .route("/api/display", get(display))
         .route(
@@ -500,5 +378,6 @@ pub fn router(state: TrmnlState) -> Router {
             state.clone(),
             require_access_token,
         ))
+        .route("/api/setup", get(setup))
         .with_state(state)
 }

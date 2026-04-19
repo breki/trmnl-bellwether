@@ -394,6 +394,160 @@ async fn access_token_required_when_configured() {
 }
 
 #[tokio::test]
+async fn setup_returns_manifest_for_latest_image() {
+    let state = test_state();
+    state
+        .put_image("today-1430.bmp".into(), Bytes::from_static(b"BM..fake"))
+        .unwrap();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .header("ID", "AA:BB:CC:DD:EE:FF")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["status"], 200);
+    assert_eq!(json["filename"], "today-1430.bmp");
+    assert_eq!(json["image_url"], "http://host.test/images/today-1430.bmp");
+    assert_eq!(json["friendly_id"], "DDEEFF");
+    assert!(
+        json["api_key"].as_str().is_some_and(|s| !s.is_empty()),
+        "api_key should be a non-empty string",
+    );
+}
+
+#[tokio::test]
+async fn setup_returns_503_when_store_empty() {
+    // Mirrors `/api/display` — if we advertised an
+    // `image_url` here with nothing behind it, the
+    // device would 404 on its first fetch.
+    let state = test_state();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .header("ID", "01:23:45:67:89:AB")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn setup_requires_id_header() {
+    let state = test_state();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn setup_returns_configured_access_token_as_api_key() {
+    let state = test_state().with_access_token("s3cret");
+    state
+        .put_image("x.bmp".into(), Bytes::from_static(b"x"))
+        .unwrap();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .header("ID", "AA:BB:CC:DD:EE:FF")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    // Setup itself is exempt from the access-token check —
+    // a fresh device has no token yet.
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["api_key"], "s3cret");
+}
+
+#[tokio::test]
+async fn setup_is_exempt_from_access_token_middleware() {
+    let state = test_state().with_access_token("s3cret");
+    state
+        .put_image("x.bmp".into(), Bytes::from_static(b"x"))
+        .unwrap();
+    let app = router(state);
+    // No Access-Token header — should still work.
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .header("ID", "AA:BB:CC:DD:EE:FF")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn setup_returns_default_api_key_when_no_token_configured() {
+    let state = test_state();
+    state
+        .put_image("x.bmp".into(), Bytes::from_static(b"x"))
+        .unwrap();
+    let app = router(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/setup")
+                .header("ID", "AA:BB:CC:DD:EE:FF")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["api_key"], DEFAULT_UNCONFIGURED_API_KEY);
+}
+
+#[test]
+fn friendly_id_from_mac_takes_last_six_hex_uppercase() {
+    assert_eq!(
+        FriendlyId::from_mac("AA:BB:CC:DD:EE:FF").to_string(),
+        "DDEEFF"
+    );
+    assert_eq!(
+        FriendlyId::from_mac("aa-bb-cc-dd-ee-ff").to_string(),
+        "DDEEFF"
+    );
+    assert_eq!(FriendlyId::from_mac("AABBCCDDEEFF").to_string(), "DDEEFF");
+    // Fewer than 6 hex chars → pad with leading zeros so
+    // the ID is always a stable 6-char string.
+    assert_eq!(FriendlyId::from_mac("AB").to_string(), "0000AB");
+    assert_eq!(FriendlyId::from_mac("").to_string(), "000000");
+    // Non-hex chars are filtered out.
+    assert_eq!(
+        FriendlyId::from_mac("xx-01-23-45-67-89-ab").to_string(),
+        "6789AB",
+    );
+}
+
+#[tokio::test]
 async fn access_token_empty_string_is_ignored() {
     // An operator who forgets to set BELLWETHER_ACCESS_TOKEN
     // gets "" from `env::var(...).unwrap_or_default()`. We

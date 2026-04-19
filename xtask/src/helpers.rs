@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::time::Instant;
 
@@ -42,6 +43,15 @@ pub fn step_output(
 pub fn elapsed_str(start: Instant) -> String {
     let secs = start.elapsed().as_secs_f64();
     format!("{secs:.1}s")
+}
+
+/// Resolve the workspace root (the parent of the xtask
+/// crate directory).
+pub fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask crate always lives under workspace root")
+        .to_path_buf()
 }
 
 /// Resolve the cargo binary path. Prefers the `CARGO`

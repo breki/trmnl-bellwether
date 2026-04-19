@@ -1,0 +1,54 @@
+# Security note: bellwether-web serves over plain HTTP
+# with no access token set. Fine for a trusted LAN; put
+# a reverse proxy (nginx/caddy) in front with TLS if you
+# expose this beyond your home network.
+
+[Unit]
+Description=bellwether TRMNL dashboard server
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=bellwether
+Group=bellwether
+WorkingDirectory=/opt/bellwether
+
+ExecStart=/opt/bellwether/bellwether-web \
+    --config /opt/bellwether/config.toml \
+    --port 9300 \
+    --bind 0.0.0.0 \
+    --frontend /opt/bellwether/frontend-dist
+
+Environment=RUST_LOG=bellwether=info,bellwether_web=info,tower_http=warn
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bellwether-web
+
+# Sandboxing
+ProtectSystem=strict
+ReadOnlyPaths=/opt/bellwether/config.toml
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+MemoryMax=512M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

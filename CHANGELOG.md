@@ -12,6 +12,44 @@ and this project adheres to
 
 ### Added
 
+- `GET /api/setup` TRMNL BYOS endpoint for first-boot
+  device registration. Returns `api_key`,
+  `friendly_id` (6-char uppercase hex from the
+  device MAC), and the current image URL. Exempt
+  from the `Access-Token` middleware since a fresh
+  device has no token yet. Returns 503 when no
+  image has been rendered yet.
+- `cargo xtask deploy-setup` — one-time RPi
+  provisioning (creates the `bellwether` system
+  user, installs `config.toml`, installs + enables
+  the systemd unit).
+- `cargo xtask deploy` — repeatable deploy (source
+  tar → scp → remote cargo build with persisted
+  `target` cache → atomic binary + frontend swap →
+  service restart with `reset-failed` guard).
+- `deploy/bellwether-web.service` hardened systemd
+  unit (system user, `ProtectSystem=strict`, empty
+  `CapabilityBoundingSet`, `SystemCallFilter=@system-service`,
+  `MemoryMax=512M`).
+- `.deploy.sample` config template; `deploy/README.md`
+  deployment guide.
+- `FriendlyId` newtype wrapping the TRMNL firmware's
+  6-char hex device identifier.
+- `DEFAULT_UNCONFIGURED_API_KEY` constant documenting
+  the placeholder `api_key` returned when no access
+  token is configured.
+
+### Changed
+
+- Split `crates/bellwether-web/src/api/trmnl/mod.rs`
+  into `mod.rs` (state + store + router) and
+  `handlers.rs` (response types, handlers,
+  middleware) to keep both files under the 500-line
+  module threshold.
+- `xtask` deploy modules use `anyhow::Result` so
+  ssh/scp `RemoteError` source chains are preserved
+  through to the CLI.
+
 - `crate::weather` — provider-neutral forecast types
   (`WeatherSnapshot`, `WeatherError`,
   `WeatherProvider` trait) plus

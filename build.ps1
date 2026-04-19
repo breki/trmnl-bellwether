@@ -8,7 +8,7 @@ param(
     [ValidateSet(
         "build", "build-only", "dev", "test", "clippy",
         "coverage", "validate", "e2e", "frontend",
-        "clean", "help"
+        "deploy", "deploy-setup", "clean", "help"
     )]
     [string]$Command = "build",
     [switch]$Help
@@ -28,6 +28,8 @@ Commands:
   validate    Run cargo xtask validate
   e2e         Run Playwright end-to-end tests
   frontend    Build frontend (npm run build)
+  deploy-setup One-time RPi provisioning (user, dirs, service)
+  deploy      Build and deploy to the RPi
   clean       Clean build artifacts
   help        Show this help
 "@
@@ -140,6 +142,16 @@ function Invoke-Frontend {
     }
 }
 
+function Invoke-Deploy {
+    cargo xtask deploy
+    if ($LASTEXITCODE -ne 0) { exit 4 }
+}
+
+function Invoke-DeploySetup {
+    cargo xtask deploy-setup
+    if ($LASTEXITCODE -ne 0) { exit 4 }
+}
+
 function Invoke-Clean {
     cargo clean
     foreach ($f in @(
@@ -163,5 +175,7 @@ switch ($Command) {
     "validate"   { Invoke-Validate }
     "e2e"        { Invoke-E2E }
     "frontend"   { Invoke-Frontend }
+    "deploy"     { Invoke-Deploy }
+    "deploy-setup" { Invoke-DeploySetup }
     "clean"      { Invoke-Clean }
 }

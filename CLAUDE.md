@@ -53,7 +53,11 @@ cargo xtask clippy            # lint only
 cargo xtask coverage          # coverage only (>=90%)
 cargo xtask fmt               # format code
 cargo xtask dupes             # code duplication check
+cargo xtask deploy-setup      # one-time RPi provisioning
+cargo xtask deploy            # build + deploy to RPi
 ```
+
+See `deploy/README.md` for deployment details.
 
 Never use raw `cargo test` or `cargo clippy` -- always
 go through `xtask`.

@@ -5,6 +5,38 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-19 (feat — v0.13.0 RPi deployment + `/api/setup`)
+
+### RT-094 — Tautological test in deploy.rs never guards against build-dir wipe
+**Category:** Correctness
+**Description:** `sync_source_does_not_wipe_build_dir` searched for literal `rm -rf ~/bellwether-build` but the actual code uses `find ... -exec rm -rf {} +`, so the test passed vacuously regardless of the implementation.
+**Fix:** Rewrote as `sync_source_preserves_target_cache` — slices out `sync_source`'s body, asserts the `! -name target` guard is present, and rejects any unguarded `rm -rf ~/bellwether-build` occurrence. `xtask/src/deploy.rs`.
+
+### RT-095 — `StartLimitBurst` locked out recovery after reboot between setup and deploy
+**Category:** Correctness
+**Description:** If the Pi rebooted between `deploy-setup` (which enables the unit) and `deploy` (which places the binary), systemd burned through 5 failed starts in 60s and rejected further starts until `reset-failed`. `restart_and_verify` would report "not active" with no hint.
+**Fix:** `deploy.rs:restart_and_verify` now runs `sudo systemctl reset-failed bellwether-web || true` before `start`. `xtask/src/deploy.rs`.
+
+### RT-096 — Hardcoded `"bellwether"` `api_key` burned in at setup time
+**Category:** Correctness / design
+**Description:** `/api/setup` handed out the literal `"bellwether"` as `api_key` when no access token was configured. If the operator later set `BELLWETHER_ACCESS_TOKEN`, every previously-registered device sent the stale placeholder and got a 401 — the TRMNL firmware has no way to re-trigger `/api/setup` short of a factory reset.
+**Fix:** Extracted to a named `pub const DEFAULT_UNCONFIGURED_API_KEY` with a doc comment that spells out the factory-reset caveat. Added a test asserting the constant is returned when no token is configured. Not a full solution (the operator still has to factory-reset to switch modes), but the contract is now explicit and discoverable. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### RT-097 — `config.toml` briefly world-readable during `scp` staging
+**Category:** Security / information leak
+**Description:** `scp` landed the file at `~/bellwether-config-tmp.toml` with the user's default umask (typically 0022 → mode 0644) before `sudo cp` moved it into `/opt/bellwether/config.toml` with 0640. On a multi-user Pi, other local users could read the file — and any secrets it contains — during that window.
+**Fix:** `COPY_CONFIG` now starts with `umask 077` and `chmod 600 ~/bellwether-config-tmp.toml` as the first actions, so the staging file is only readable by the `scp` user. `xtask/src/deploy_setup.rs`.
+
+### RT-098 — `ReadOnlyPaths` on `frontend-dist` conflicted with atomic-swap inode replacement
+**Category:** Deployment
+**Description:** `INSTALL_FRONTEND` does `rm -rf && mv` which replaces the directory inode. On older systemd versions the `ReadOnlyPaths` entry could end up pointing at the stale inode, causing restart-time mount failures. The entry was also redundant given `ProtectSystem=strict` already makes `/opt` read-only for the service.
+**Fix:** Removed `frontend-dist` from `ReadOnlyPaths`; `config.toml` remains pinned there (no such swap). `deploy/bellwether-web.service`.
+
+### RT-099 — `MemoryMax=256M` combined with `StartLimitBurst=5` risked OOM lockout
+**Category:** Deployment
+**Description:** 256 MiB is tight for axum + reqwest TLS + in-memory BMP rendering. An OOM kill combined with the start-limit burst would lock the service out of auto-restart for 60s.
+**Fix:** Raised `MemoryMax=512M` to give rendering more headroom. `deploy/bellwether-web.service`.
+
 ## 2026-04-19 (feat — v0.12.0 Windy → Open-Meteo migration)
 
 ### RT-087 — `read_capped_body` allocated past the cap before checking

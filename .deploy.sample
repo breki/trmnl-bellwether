@@ -1,0 +1,13 @@
+# Deploy Configuration
+# Copy this file to .deploy and customize.
+#
+# Format: key=value (no quotes)
+
+# RPi hostname or IP address
+rpi_host=malina
+
+# SSH user on the RPi (must have sudo access)
+rpi_user=pi
+
+# Deploy path on the RPi (must be /opt/bellwether)
+deploy_path=/opt/bellwether

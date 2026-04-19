@@ -6,6 +6,48 @@ findings.
 
 ---
 
+## 2026-04-19 (feat — v0.13.0 RPi deployment + `/api/setup`)
+
+### AQ-107 — `/api/setup` returned bare `Response` instead of typed `Result<Json<_>, StatusCode>`
+**Category:** API design
+**Description:** `setup()` returned an opaque `Response`, hiding the JSON shape and 404 error path inside `.into_response()` calls, while the sibling `display()` returned `Result<Json<DisplayResponse>, StatusCode>`.
+**Fix:** Changed signature to match `display()` — `Result<Json<SetupResponse>, StatusCode>` with `?` on the MAC header extraction. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-108 — Advertised `image_url` pointed at a filename with no bytes behind it
+**Category:** Type safety / correctness
+**Description:** When the image store was empty, `setup` advertised `image_url=".../empty_state"` but `serve_image` would 404 on that filename — the device would poll and get nothing.
+**Fix:** Now returns 503 when no image is available, matching `/api/display`'s pattern. Removed the unused `SETUP_PLACEHOLDER_FILENAME` constant. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-109 — `derive_friendly_id` was a free function returning `String`
+**Category:** Type safety
+**Description:** The "6-char uppercase-hex device id" format invariant lived in a free function name rather than a type. `SetupResponse.friendly_id: String` could be confused with any other string field.
+**Fix:** Introduced `FriendlyId` newtype with `from_mac(&str) -> Self` and `Display`, mirroring the module's existing `RefreshInterval` pattern. `SetupResponse.friendly_id: FriendlyId` now self-documents. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-110 — `trmnl/mod.rs` exceeded 500-line threshold
+**Category:** Module size
+**Description:** The module had grown to 618 lines bundling validation, store, state, five handlers, middleware, response types, and router composition.
+**Fix:** Split handlers into sibling `handlers.rs` (260 lines: response types, `FriendlyId`, `display`/`setup`/`log`/`serve_image`, auth middleware). `mod.rs` is now 383 lines (state + store + router). Added `TrmnlState::access_token()` accessor so handlers don't need field-level access. `crates/bellwether-web/src/api/trmnl/{mod,handlers}.rs`.
+
+### AQ-111 — `SetupResponse.status: u16` stringly-typed
+**Category:** Type safety
+**Description:** The response body carries its own `status` field that the firmware inspects, constructed with a bare literal `200`, leaving room for drift between HTTP status and body status.
+**Fix:** Accepted that both `DisplayResponse` and `SetupResponse` share this pattern (mirror of the TRMNL firmware contract). The literal is colocated with the one `Json(...)` construction site, which is minimum-viable. Noted here rather than opening a fresh log entry; a bigger "split status out of response bodies" refactor would span both types.
+
+### AQ-112 — xtask deploy modules flattened `RemoteError` source chains
+**Category:** Error handling
+**Description:** `deploy_remote::RemoteError` carries a proper `source()` chain, but every caller in `deploy.rs` / `deploy_setup.rs` discarded it with `.map_err(|e| e.to_string())?` at 12 call sites — typed error was effectively write-only.
+**Fix:** Added `anyhow = "1"` to xtask. Converted `deploy::deploy`, `deploy_setup::deploy_setup`, and `deploy_config::load` to `anyhow::Result<()>`. Replaced `.map_err(|e| e.to_string())` with `.context(...)` so `RemoteError`'s source chain is preserved and rendered via `{e:#}` in `main.rs`. Internal `validate()` stays `Result<_, String>` so unit tests' `.contains()` assertions don't need rewriting.
+
+### AQ-113 — Dead `.parent()` checks on paths built from `project_root.join()`
+**Category:** API design / dead code
+**Description:** `deploy_setup::copy_config` and `install_service` called `.parent().ok_or_else(|| format!(...))` on paths that were always constructed as `project_root.join(...)`, so the error branches were unreachable.
+**Fix:** Pass `project_root` / `deploy_dir` directly as the `scp` cwd. Dropped the `parent()` computations. Changed `install_service` to accept a `deploy_dir: &Path` parameter instead of deriving it. `xtask/src/deploy_setup.rs`.
+
+### AQ-114 — `parse_port` returned `Option<String>` where `Option<u16>` fit
+**Category:** Type safety
+**Description:** `Option<String>` allowed impossible values (e.g. `"999999"`) to flow into the printed URL without any warning.
+**Fix:** `parse_port(&str) -> Option<u16>` via `.parse::<u16>().ok()`. Added `parse_port_rejects_out_of_range` test. Caller uses `map_or_else` to format. `xtask/src/deploy_setup.rs`.
+
 ## 2026-04-19 (feat — v0.12.0 Windy → Open-Meteo migration)
 
 ### AQ-096 — Provider-error types carried config-shape errors

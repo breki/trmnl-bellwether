@@ -1,6 +1,10 @@
 mod check;
 mod clippy_cmd;
 mod coverage;
+mod deploy;
+mod deploy_config;
+mod deploy_remote;
+mod deploy_setup;
 mod dupes;
 mod fmt_cmd;
 mod frontend_check;
@@ -46,6 +50,10 @@ enum XCommand {
     Coverage,
     /// Run code duplication check (requires code-dupes)
     Dupes,
+    /// One-time `RPi` provisioning (user, dirs, service)
+    DeploySetup,
+    /// Build and deploy to the `RPi`
+    Deploy,
 }
 
 fn main() {
@@ -67,6 +75,10 @@ fn main() {
         XCommand::Fmt => fmt_cmd::fmt(),
         XCommand::Coverage => coverage::coverage(),
         XCommand::Dupes => dupes::dupes(),
+        XCommand::DeploySetup => {
+            deploy_setup::deploy_setup().map_err(|e| format!("{e:#}"))
+        }
+        XCommand::Deploy => deploy::deploy().map_err(|e| format!("{e:#}")),
     };
 
     if let Err(e) = result {

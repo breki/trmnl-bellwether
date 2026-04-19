@@ -33,6 +33,10 @@ coverage.json
 # Port config (local override)
 .ports
 
+# Deploy config (local override — contains RPi user/host)
+/.deploy
+/bellwether-src.tar
+
 # Local bellwether config and secrets (never commit)
 /config.toml
 windy_key.txt

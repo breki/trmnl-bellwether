@@ -7,6 +7,48 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Deploy to Raspberry Pi + `/api/setup` endpoint (v0.13.0)
+
+    Bellwether now runs on `malina` as a hardened
+    systemd service. Ported hoard's build-on-RPi
+    deploy mechanism: `cargo xtask deploy-setup` for
+    one-time provisioning (creates the `bellwether`
+    system user, copies `config.toml`, installs the
+    unit), `cargo xtask deploy` for repeatable
+    deploys (tar source → scp → remote cargo build
+    with persisted `target` cache → atomic binary +
+    frontend swap → service restart with
+    `reset-failed` guard). No cross-compile
+    toolchain needed locally. Setup and deploy
+    functions use `anyhow::Result` so ssh/scp error
+    source chains survive through to the CLI.
+
+    Added `GET /api/setup` — the fourth TRMNL BYOS
+    endpoint, which a factory-fresh device hits on
+    first boot to exchange its MAC for an `api_key`
+    and `friendly_id`. Exempt from the
+    `Access-Token` middleware (a fresh device has
+    none). Returns 503 when no image has been
+    rendered yet, matching `/api/display`'s
+    contract. `FriendlyId` newtype carries the
+    6-char-uppercase-hex format invariant.
+    `DEFAULT_UNCONFIGURED_API_KEY` documents the
+    no-auth-mode placeholder and the factory-reset
+    caveat when the operator later enables auth.
+
+    Split `trmnl/mod.rs` into `mod.rs` (state +
+    store + router) and `handlers.rs` (response
+    types, `FriendlyId`, handlers, auth middleware)
+    to stay under the 500-line threshold.
+
+    Systemd hardening: `config.toml` staging file
+    locked down with `umask 077` + `chmod 600` to
+    avoid a brief world-readable window during
+    `scp`; `MemoryMax` raised to 512 MiB for BMP
+    rendering headroom; `StartLimitIntervalSec` /
+    `StartLimitBurst` moved under `[Unit]` where
+    modern systemd expects them.
+
 - Migrate weather backend from Windy to Open-Meteo (v0.12.0)
 
     Replaced the Windy Point Forecast API with

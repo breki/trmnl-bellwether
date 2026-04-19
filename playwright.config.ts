@@ -69,7 +69,7 @@ export default defineConfig({
 
   webServer: [
     {
-      command: `cargo run -p bellwether-web -- --port ${backendPort}`,
+      command: `cargo run -p bellwether-web -- --dev --port ${backendPort}`,
       cwd: projectRoot,
       url: `http://localhost:${backendPort}/health`,
       reuseExistingServer: true,

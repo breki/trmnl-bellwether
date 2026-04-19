@@ -65,8 +65,10 @@
 - **Scheduler + retry.** `tokio-cron-scheduler` or
   hand-rolled tick loop. Backoff on HA / Windy
   failures. Cache last-good data.
-- **Control panel** (Svelte frontend). Entity picker,
-  layout editor, live preview.
+- **Control panel.** Entity picker, layout editor,
+  live preview. Likely server-rendered HTML or
+  HTMX — the Svelte scaffold was removed because it
+  hadn't earned its complexity.
 - **Alternate layouts / plugin system.** Multiple SVG
   templates selectable by config or time of day.
 

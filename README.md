@@ -39,18 +39,13 @@ cargo run -p bellwether       # run CLI
 Web dev loop:
 
 ```bash
-cd frontend && npm install    # first time
-.\build.ps1 dev               # backend + frontend
+cargo run -p bellwether-web -- --dev
 ```
 
-Open http://localhost:5173. Vite proxies `/api` and
-`/health` to the Axum backend on port 3100.
-
-E2E tests:
-
-```bash
-npx playwright test           # auto-starts servers
-```
+Open http://localhost:3100 for the landing page (lists
+available endpoints and shows the latest rendered
+dashboard). `--dev` skips the publish loop, useful for
+iterating on endpoints without live data.
 
 ## Running the server
 

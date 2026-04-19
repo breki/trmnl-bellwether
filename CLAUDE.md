@@ -25,8 +25,8 @@ decisions that block future PRs, recommended next PRs,
 and user preferences that are not derivable from the
 code.
 
-- **Stack**: Rust/Axum backend, Svelte 5/Vite frontend
-  (control panel), static e-ink image renderer
+- **Stack**: Rust/Axum backend with a hand-rolled HTML
+  landing page; static e-ink image renderer
 - **Target platforms**: Linux (primary, for RPi
   deployment); Windows and macOS for development
 
@@ -39,9 +39,13 @@ code.
 | `xtask` | Build automation |
 
 The web crate is optional. To remove it: delete
-`crates/bellwether-web/`, `frontend/`, and remove
+`crates/bellwether-web/` and remove
 `"crates/bellwether-web"` from `Cargo.toml` workspace
 members.
+
+The server serves a hand-rolled HTML landing page at
+`/` listing its endpoints — no frontend build step or
+SPA scaffold.
 
 ## Build Commands
 
@@ -62,50 +66,24 @@ See `deploy/README.md` for deployment details.
 Never use raw `cargo test` or `cargo clippy` -- always
 go through `xtask`.
 
-### Frontend Development
+### Local development
 
 ```bash
-cd frontend && npm install    # first time only
-cd frontend && npm run dev    # dev server on :5173
-cd frontend && npm run build  # production build to dist/
+cargo run -p bellwether-web -- --config config.toml
+# then open http://localhost:3100
 ```
 
-In dev mode, Vite proxies `/api` requests to the Axum
-backend on port 3100. Run backend and frontend in
-parallel:
-
-1. `cargo run -p bellwether-web` (backend on :3100)
-2. `cd frontend && npm run dev` (frontend on :5173)
-3. Open http://localhost:5173
-
-For production, build the frontend first, then serve
-with the backend:
-`cargo run -p bellwether-web -- --frontend frontend/dist`
-
-### E2E Testing
-
-```bash
-scripts/e2e.sh                   # kill stale servers + run tests
-npx playwright test              # run all E2E tests
-npx playwright test smoke        # filtered
-npx playwright test --ui         # interactive UI mode
-```
-
-Playwright auto-starts both backend and frontend.
-Configure ports via `.ports` file (copy from
-`.ports.sample`).
-
-**Every UI feature must have E2E tests** before the
-task is marked as done. Type checking and unit tests
-verify code correctness, not feature correctness.
+`--dev` runs without a config file using localhost
+defaults (useful for iterating on the landing page or
+endpoints without live Home Assistant / Open-Meteo
+data; the publish loop is skipped).
 
 ### PowerShell Build Script
 
 ```powershell
 .\build.ps1 validate    # cargo xtask validate
 .\build.ps1 test        # tests only
-.\build.ps1 e2e         # Playwright E2E tests
-.\build.ps1 frontend    # npm build
+.\build.ps1 dev         # run backend in dev mode
 .\build.ps1 build       # full build with all checks
 .\build.ps1 clean       # clean artifacts
 ```

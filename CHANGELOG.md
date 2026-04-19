@@ -12,6 +12,39 @@ and this project adheres to
 
 ### Added
 
+- Hand-rolled HTML landing page at `/` listing the
+  server's endpoints (`/health`, `/api/status`,
+  `/api/display`, `/api/setup`, `/api/log`,
+  `/images/*`) and embedding the latest rendered
+  dashboard image. Served by `bellwether-web`
+  directly, no build step required.
+
+### Changed
+
+- **Breaking CLI:** `bellwether-web --frontend <path>`
+  flag removed. The systemd unit, `deploy/README.md`,
+  and PowerShell build script updated accordingly.
+
+### Removed
+
+- **Svelte / Vite frontend** (`frontend/`), **Playwright
+  E2E harness** (`e2e/`, `playwright.config.ts`,
+  `scripts/e2e.sh`), root `package.json` and
+  `tsconfig.json`. The scaffold was leftover template
+  material — the TRMNL is the display, and admin
+  tasks don't need an SPA. If a richer admin UI is
+  needed later, server-rendered HTML / HTMX is a
+  better fit for this project's size.
+- `xtask frontend_check` (the `svelte-check` step)
+  and `[6/6] Frontend` step in `cargo xtask validate`.
+  Validate now runs 5 steps.
+- `tower-http` `fs` feature from `bellwether-web`
+  (no more `ServeDir` / `ServeFile`).
+- `/api/greeting` scaffold endpoint. `/api/status`
+  still returns the server version.
+
+### Added
+
 - `[dashboard]` section in the main config (e.g.
   `config.toml`) now optionally carries a full widget
   layout. `canvas` sits as a sibling field next to the

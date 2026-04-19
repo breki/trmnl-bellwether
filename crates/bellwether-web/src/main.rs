@@ -48,10 +48,6 @@ struct Cli {
     /// Bind address
     #[arg(short, long, default_value = "127.0.0.1")]
     bind: IpAddr,
-
-    /// Path to frontend dist directory
-    #[arg(short, long, default_value = "frontend/dist")]
-    frontend: PathBuf,
 }
 
 /// Everything `build_trmnl_state` needs to produce and
@@ -107,7 +103,7 @@ async fn main() -> Result<()> {
         );
     }
 
-    let app = api::create_router(&cli.frontend, startup.trmnl);
+    let app = api::create_router(startup.trmnl);
 
     let addr = SocketAddr::new(cli.bind, cli.port);
     tracing::info!("listening on http://{addr}");

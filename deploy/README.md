@@ -47,8 +47,8 @@ cargo xtask deploy
 ```
 
 This rebuilds source on the RPi, atomically swaps the
-binary and frontend, and restarts the service. It will
-fail loudly if the service doesn't come back up `active`.
+binary, and restarts the service. It will fail loudly
+if the service doesn't come back up `active`.
 
 ## Changing config
 
@@ -71,12 +71,11 @@ sudo systemctl restart bellwether-web
 
 Defaults (baked into `deploy/bellwether-web.service`):
 
-| Setting  | Value                           |
-|----------|---------------------------------|
-| Port     | 9300                            |
-| Bind     | 0.0.0.0 (all interfaces)        |
-| Config   | /opt/bellwether/config.toml     |
-| Frontend | /opt/bellwether/frontend-dist   |
+| Setting | Value                       |
+|---------|-----------------------------|
+| Port    | 9300                        |
+| Bind    | 0.0.0.0 (all interfaces)    |
+| Config  | /opt/bellwether/config.toml |
 
 To override (e.g. different port), use a systemd drop-in:
 
@@ -91,8 +90,7 @@ Then:
 ExecStart=
 ExecStart=/opt/bellwether/bellwether-web \
     --config /opt/bellwether/config.toml \
-    --port 8080 --bind 0.0.0.0 \
-    --frontend /opt/bellwether/frontend-dist
+    --port 8080 --bind 0.0.0.0
 ```
 
 ## Firewall

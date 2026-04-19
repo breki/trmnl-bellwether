@@ -4,35 +4,22 @@ use crate::clippy_cmd;
 use crate::coverage;
 use crate::dupes;
 use crate::fmt_cmd;
-use crate::frontend_check;
 use crate::helpers::{elapsed_str, step_output};
 use crate::test_cmd;
 
 /// Total number of validation steps.
-const TOTAL_STEPS: usize = 6;
+const TOTAL_STEPS: usize = 5;
 
 /// Run all validation steps with concise stepwise
 /// output.
 pub fn validate() -> Result<(), String> {
     let overall_start = Instant::now();
 
-    // 1. Fmt
     run_step(1, "Fmt", run_fmt)?;
-
-    // 2. Clippy
     run_step(2, "Clippy", run_clippy)?;
-
-    // 3. Test
     run_step(3, "Test", run_test)?;
-
-    // 4. Coverage
     run_step(4, "Coverage", run_coverage)?;
-
-    // 5. Duplication
     run_step(5, "Duplication", run_duplication)?;
-
-    // 6. Frontend type check (skipped if no frontend)
-    run_step(6, "Frontend", run_frontend_check)?;
 
     println!("Validate OK ({})", elapsed_str(overall_start));
     Ok(())
@@ -105,16 +92,5 @@ fn run_duplication() -> Result<String, String> {
         Err(err)
     } else {
         Ok(r.detail)
-    }
-}
-
-/// Frontend type check -- skips gracefully when there is
-/// no frontend or `node_modules` to check against.
-fn run_frontend_check() -> Result<String, String> {
-    let r = frontend_check::frontend_check()?;
-    match r.error {
-        None if r.skipped => Ok(format!("skipped: {}", r.detail)),
-        None => Ok(r.detail),
-        Some(err) => Err(err),
     }
 }

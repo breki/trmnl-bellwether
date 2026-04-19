@@ -7,6 +7,43 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Drop Svelte frontend; replace `/` with hand-rolled
+  HTML landing page (v0.16.0)
+
+    The Svelte/Vite scaffold and Playwright E2E setup
+    were leftover template material that never
+    graduated to a real UI. The only endpoint that
+    actually needed the frontend build was `/` serving
+    `index.html`. For a server whose job is to render
+    BMPs for an e-ink device, an SPA was pure overhead.
+
+    Replaced with a hand-rolled HTML landing page
+    (`fn landing_page() -> Html<String>` in
+    `bellwether-web/src/api/mod.rs`) that lists the
+    available endpoints (`/health`, `/api/status`,
+    `/api/display`, `/api/setup`, `/api/log`,
+    `/images/*`) and embeds the latest rendered
+    dashboard. Styled with ~40 lines of inline CSS —
+    light/dark aware, no external assets.
+
+    Deleted: `frontend/`, `e2e/`, `playwright.config.ts`,
+    `scripts/e2e.sh`, root `package.json`, root
+    `tsconfig.json`, `xtask::frontend_check`,
+    `bellwether-web --frontend <path>` CLI flag,
+    `tower-http` `fs` feature (no more `ServeDir` /
+    `ServeFile`), `/api/greeting` scaffold endpoint.
+
+    `cargo xtask validate` drops from 6 steps to 5 (no
+    more frontend type-check). The RPi deploy script
+    no longer runs `npm run build` or scp's
+    `frontend-dist`; `cargo xtask deploy` is
+    4-step now. Systemd unit lost its `--frontend`
+    arg.
+
+    If a real admin UI shows up on the backlog later,
+    HTMX + server-rendered templates fit this
+    project's size better than a full SPA.
+
 - Inline layout config under `[dashboard]` (v0.15.0)
 
     The layout can now be declared inline in the main

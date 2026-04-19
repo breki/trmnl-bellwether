@@ -7,7 +7,6 @@ mod deploy_remote;
 mod deploy_setup;
 mod dupes;
 mod fmt_cmd;
-mod frontend_check;
 mod helpers;
 mod test_cmd;
 mod validate;

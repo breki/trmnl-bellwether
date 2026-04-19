@@ -1,9 +1,8 @@
 //! Repeatable deploy to the Raspberry Pi.
 //!
-//! Builds the frontend locally, tars the Rust sources and
-//! ships them to the `RPi`, builds the release binary
-//! there, installs the binary + frontend atomically, and
-//! restarts the systemd service.
+//! Tars the Rust sources and ships them to the `RPi`,
+//! builds the release binary there, installs the binary
+//! atomically, and restarts the systemd service.
 
 use std::fs;
 use std::path::Path;
@@ -24,10 +23,9 @@ pub fn deploy() -> Result<()> {
 
     println!("=== Deploy to {remote} ({}) ===", cfg.deploy_path);
 
-    build_frontend(&project_root)?;
     sync_source(&project_root, &remote)?;
     build_on_remote(&remote)?;
-    install(&remote, &cfg.deploy_path, &project_root)?;
+    install(&remote, &cfg.deploy_path)?;
     restart_and_verify(&remote)?;
 
     println!();
@@ -35,31 +33,9 @@ pub fn deploy() -> Result<()> {
     Ok(())
 }
 
-fn build_frontend(project_root: &Path) -> Result<()> {
-    println!();
-    println!("[1/5] Building frontend...");
-    let frontend = project_root.join("frontend");
-    let status = Command::new(npm_bin())
-        .args(["run", "build"])
-        .current_dir(&frontend)
-        .status()
-        .context("failed to run npm")?;
-    if !status.success() {
-        match status.code() {
-            Some(c) => bail!("npm run build exited with status {c}"),
-            None => bail!("npm run build terminated by signal"),
-        }
-    }
-    let dist = frontend.join("dist");
-    if !dist.is_dir() {
-        bail!("frontend dist not found at {}", dist.display());
-    }
-    Ok(())
-}
-
 fn sync_source(project_root: &Path, remote: &str) -> Result<()> {
     println!();
-    println!("[2/5] Syncing source to {remote}...");
+    println!("[1/4] Syncing source to {remote}...");
 
     // Preserve ~/bellwether-build/target across deploys
     // for incremental cargo builds, but still purge stale
@@ -120,7 +96,7 @@ fn sync_source(project_root: &Path, remote: &str) -> Result<()> {
 
 fn build_on_remote(remote: &str) -> Result<()> {
     println!();
-    println!("[3/5] Building on {remote} (this may take a while)...");
+    println!("[2/4] Building on {remote} (this may take a while)...");
     deploy_remote::ssh_run(
         remote,
         ". ~/.cargo/env \
@@ -131,25 +107,9 @@ fn build_on_remote(remote: &str) -> Result<()> {
     Ok(())
 }
 
-/// Atomic swap of the frontend. Self-checks `DEPLOY_PATH`
-/// matches the required constant before any `rm -rf`, as
-/// defense in depth against future config loosening.
-const INSTALL_FRONTEND: &str = r#"set -euo pipefail
-DEPLOY_PATH="$1"
-if [[ "$DEPLOY_PATH" != "/opt/bellwether" ]]; then
-    echo "ERROR: unexpected DEPLOY_PATH: $DEPLOY_PATH" >&2
-    exit 1
-fi
-sudo cp -r ~/frontend-dist-tmp "$DEPLOY_PATH/frontend-dist-new"
-sudo chown -R bellwether:bellwether "$DEPLOY_PATH/frontend-dist-new"
-sudo rm -rf "$DEPLOY_PATH/frontend-dist"
-sudo mv "$DEPLOY_PATH/frontend-dist-new" "$DEPLOY_PATH/frontend-dist"
-rm -rf ~/frontend-dist-tmp
-"#;
-
-fn install(remote: &str, deploy_path: &str, project_root: &Path) -> Result<()> {
+fn install(remote: &str, deploy_path: &str) -> Result<()> {
     println!();
-    println!("[4/5] Installing...");
+    println!("[3/4] Installing...");
 
     // Stop (ignore failure — may not be running).
     deploy_remote::ssh_run(
@@ -158,31 +118,18 @@ fn install(remote: &str, deploy_path: &str, project_root: &Path) -> Result<()> {
     )
     .context("stopping service")?;
 
-    // Binary.
     let cmd = format!(
         "sudo cp ~/bellwether-build/target/release/bellwether-web \
              '{deploy_path}/' \
          && sudo chmod 755 '{deploy_path}/bellwether-web'"
     );
     deploy_remote::ssh_run(remote, &cmd).context("installing binary")?;
-
-    // Frontend — atomic swap. scp the dist dir.
-    deploy_remote::scp_to(
-        remote,
-        "dist",
-        "~/frontend-dist-tmp",
-        &project_root.join("frontend"),
-    )
-    .context("uploading frontend dist")?;
-
-    deploy_remote::ssh_bash(remote, INSTALL_FRONTEND, &[deploy_path])
-        .context("swapping frontend dir")?;
     Ok(())
 }
 
 fn restart_and_verify(remote: &str) -> Result<()> {
     println!();
-    println!("[5/5] Restarting bellwether-web...");
+    println!("[4/4] Restarting bellwether-web...");
     // Clear a prior `failed` state (e.g. from a reboot
     // between `deploy-setup` and the first `deploy`,
     // which can burn through `StartLimitBurst` while
@@ -225,37 +172,15 @@ fn poll_active_status(remote: &str, attempts: u32) -> Result<String> {
     Ok(last)
 }
 
-fn npm_bin() -> &'static str {
-    if cfg!(windows) { "npm.cmd" } else { "npm" }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn install_frontend_script_is_set_minus_e() {
-        assert!(INSTALL_FRONTEND.starts_with("set -euo pipefail"));
-    }
-
-    #[test]
-    fn install_frontend_has_deploy_path_tripwire() {
-        assert!(
-            INSTALL_FRONTEND.contains("/opt/bellwether"),
-            "INSTALL_FRONTEND should pin DEPLOY_PATH to /opt/bellwether"
-        );
-    }
-
     /// Guard against a future refactor wiping the remote
     /// build dir, which would defeat the incremental
     /// cargo cache under `target/` on the `RPi`.
     ///
     /// Checks that every reference to `~/bellwether-build`
     /// inside `sync_source` is guarded by a `! -name
-    /// target` predicate. The previous version of this
-    /// test searched for a specific literal string that
-    /// the actual code never contained, so it passed
-    /// vacuously.
+    /// target` predicate.
     #[test]
     fn sync_source_preserves_target_cache() {
         let src = include_str!("deploy.rs");

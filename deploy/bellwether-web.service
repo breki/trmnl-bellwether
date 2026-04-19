@@ -18,8 +18,7 @@ WorkingDirectory=/opt/bellwether
 ExecStart=/opt/bellwether/bellwether-web \
     --config /opt/bellwether/config.toml \
     --port 9300 \
-    --bind 0.0.0.0 \
-    --frontend /opt/bellwether/frontend-dist
+    --bind 0.0.0.0
 
 Environment=RUST_LOG=bellwether=info,bellwether_web=info,tower_http=warn
 

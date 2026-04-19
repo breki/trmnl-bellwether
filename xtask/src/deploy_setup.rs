@@ -44,7 +44,7 @@ else
     echo "  User 'bellwether' already exists"
 fi
 
-sudo mkdir -p "$DEPLOY_PATH/frontend-dist"
+sudo mkdir -p "$DEPLOY_PATH"
 sudo chown -R bellwether:bellwether "$DEPLOY_PATH"
 sudo chmod 750 "$DEPLOY_PATH"
 echo "  Directories ready"

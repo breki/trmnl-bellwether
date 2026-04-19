@@ -62,6 +62,16 @@ pub const MAX_LOG_BODY_BYTES: usize = 16 * 1024;
 /// render-side filenames.
 pub const MAX_FILENAME_LEN: usize = 128;
 
+/// How many rendered images the in-memory store keeps
+/// before evicting the oldest. Sized generously relative
+/// to the protocol requirement (which only needs the
+/// image most recently advertised via `/api/display`):
+/// keeping a small tail covers devices that fetch
+/// slightly after the next render tick, without letting
+/// memory grow unbounded — ~48 KB per 1-bit 800×480 BMP
+/// × 4 = ~192 KB, bounded regardless of uptime.
+pub const MAX_RETAINED_IMAGES: usize = 4;
+
 /// Filename validation failed.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[non_exhaustive]
@@ -149,7 +159,13 @@ impl ImageStore {
         Self::default()
     }
 
-    /// Insert an image and mark it as the latest.
+    /// Insert an image, mark it as the latest, and
+    /// evict the oldest entries until at most
+    /// [`MAX_RETAINED_IMAGES`] remain. The current
+    /// `latest` is never evicted, so a non-monotonic
+    /// filename arriving last won't get pruned by
+    /// lexical-order sweep.
+    ///
     /// Returns [`InvalidFilename`] if the filename
     /// doesn't match the validator.
     pub fn put_image(
@@ -164,6 +180,19 @@ impl ImageStore {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         inner.images.insert(filename.clone(), bytes);
         inner.latest = Some(filename);
+        while inner.images.len() > MAX_RETAINED_IMAGES {
+            let to_remove = inner
+                .images
+                .keys()
+                .find(|k| Some(k.as_str()) != inner.latest.as_deref())
+                .cloned();
+            match to_remove {
+                Some(k) => {
+                    inner.images.remove(&k);
+                }
+                None => break,
+            }
+        }
         Ok(())
     }
 

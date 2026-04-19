@@ -10,6 +10,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `ImageStore` now evicts the oldest image once the
+  retained count exceeds `MAX_RETAINED_IMAGES` (= 4).
+  Previously the store was unbounded: at the default
+  5-minute refresh the process accumulated ~13.5 MB of
+  BMPs per day and would OOM-kill under `MemoryMax=512M`
+  after about 37 days of uptime. The TRMNL BYOS protocol
+  only needs the image most recently advertised via
+  `/api/display`; the small tail is preserved so devices
+  that fetch slightly after the next render tick don't
+  see a 404.
+
 ### Added
 
 - `GET /api/setup` TRMNL BYOS endpoint for first-boot

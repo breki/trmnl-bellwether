@@ -7,6 +7,20 @@ reverse chronological order.
 
 ### 2026-04-19
 
+- Cap `ImageStore` retention at 4 (v0.13.1)
+
+    The in-memory BMP store grew without bound: every
+    `put_image` inserted into a `BTreeMap` and nothing
+    ever evicted. At the default 5-minute refresh that
+    accumulated ~13.5 MB/day, heading for OOM-kill under
+    `MemoryMax=512M` in roughly a month. The TRMNL BYOS
+    protocol only needs the current image; keeping a
+    small tail covers the race window between a device's
+    `/api/display` poll and its subsequent image fetch.
+    New `MAX_RETAINED_IMAGES = 4` constant; eviction
+    sweeps the oldest key while guarding against
+    dropping the current `latest`.
+
 - Deploy to Raspberry Pi + `/api/setup` endpoint (v0.13.0)
 
     Bellwether now runs on `malina` as a hardened

@@ -98,6 +98,60 @@ fn image_store_composite_lock_keeps_latest_and_map_in_sync() {
 }
 
 #[test]
+fn image_store_evicts_oldest_beyond_retention_cap() {
+    // Monotonic filenames like the publish loop produces;
+    // after inserting more than MAX_RETAINED_IMAGES, the
+    // oldest should be gone and the latest should remain
+    // fetchable.
+    let store = ImageStore::new();
+    for i in 0..(MAX_RETAINED_IMAGES + 3) {
+        store
+            .put_image(format!("dash-{i:08}.bmp"), Bytes::from_static(b"x"))
+            .unwrap();
+    }
+    for i in 0..3 {
+        assert!(
+            store.get_image(&format!("dash-{i:08}.bmp")).is_none(),
+            "oldest image dash-{i:08}.bmp should have been evicted",
+        );
+    }
+    for i in 3..(MAX_RETAINED_IMAGES + 3) {
+        assert!(
+            store.get_image(&format!("dash-{i:08}.bmp")).is_some(),
+            "recent image dash-{i:08}.bmp should still be present",
+        );
+    }
+    let latest_n = MAX_RETAINED_IMAGES + 2;
+    assert_eq!(
+        store.latest_filename().as_deref(),
+        Some(format!("dash-{latest_n:08}.bmp").as_str()),
+    );
+}
+
+#[test]
+fn image_store_never_evicts_the_current_latest() {
+    // Guard against the corner case where a non-monotonic
+    // filename is inserted last: evicting the oldest by
+    // lexical order must not drop the current `latest`.
+    let store = ImageStore::new();
+    for i in 0..MAX_RETAINED_IMAGES {
+        store
+            .put_image(format!("z-{i:03}.bmp"), Bytes::from_static(b"x"))
+            .unwrap();
+    }
+    // `a.bmp` sorts earliest but is the most recent.
+    store
+        .put_image("a.bmp".into(), Bytes::from_static(b"new"))
+        .unwrap();
+    assert_eq!(
+        store.get_image("a.bmp").as_deref(),
+        Some(b"new".as_slice()),
+        "the most recently inserted image must never be evicted",
+    );
+    assert_eq!(store.latest_filename().as_deref(), Some("a.bmp"));
+}
+
+#[test]
 fn image_store_rejects_bad_filenames() {
     let store = ImageStore::new();
     assert_eq!(

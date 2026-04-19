@@ -4,23 +4,14 @@
 //! `docs/developer/spike.md` §7 for the schema decision
 //! and `test-data/config-byos.toml` for an example.
 //!
-//! Secrets (API keys) are **not** stored inline. The
-//! config holds a path to a file whose contents are the
-//! secret. Relative paths are resolved against the
-//! config file's parent directory so the config can be
-//! relocated as a unit. Secret files are read eagerly
-//! at [`Config::load`] time and kept in memory —
-//! missing, unreadable, or empty secret files fail at
-//! load rather than at first use.
-//!
-//! The module is split by config section: [`windy`],
+//! The module is split by config section: [`weather`],
 //! [`trmnl`], and [`render`] each own their sub-types
 //! and defaults. This module ties them together and
 //! provides the load/parse entry points.
 
 mod render;
 mod trmnl;
-mod windy;
+mod weather;
 
 use std::fmt;
 use std::fs;
@@ -30,7 +21,7 @@ use serde::Deserialize;
 
 pub use self::render::{BitDepth, RenderConfig};
 pub use self::trmnl::{ByosConfig, TrmnlConfig, WebhookConfig};
-pub use self::windy::{WindyConfig, WindyParameter};
+pub use self::weather::{OpenMeteoProviderConfig, ProviderKind, WeatherConfig};
 
 /// Errors returned by [`Config::load`] and
 /// [`Config::from_toml_str`].
@@ -45,22 +36,6 @@ pub enum ConfigError {
         /// Underlying I/O error.
         #[source]
         source: std::io::Error,
-    },
-    /// Reading a referenced secret file failed.
-    #[error("reading secret file {path}: {source}")]
-    ReadSecret {
-        /// Path we tried to read.
-        path: PathBuf,
-        /// Underlying I/O error.
-        #[source]
-        source: std::io::Error,
-    },
-    /// A secret file existed but contained only
-    /// whitespace.
-    #[error("secret file {path} is empty")]
-    EmptySecret {
-        /// Path that was empty.
-        path: PathBuf,
     },
     /// The TOML was malformed or had unexpected shape.
     /// `path` is `None` when parsing from an in-memory
@@ -106,52 +81,28 @@ pub enum ConfigError {
          be in 1..=86400"
     )]
     InvalidRefreshRate(u32),
-    /// `[windy] parameters` omits a parameter the v1
-    /// dashboard requires. We reject at load time so an
-    /// operator upgrading from a pre-0.8 config whose
-    /// parameter list predates the full dashboard
-    /// (which now consumes clouds and precip for
-    /// condition classification, plus temp and wind for
-    /// the labels) sees the migration path immediately
-    /// — rather than silently rendering "Cloudy" on
-    /// every tile because the classifier has nothing to
-    /// work with.
-    ///
-    /// An empty `parameters` list is still accepted:
-    /// that's how webhook-only deployments opt out of
-    /// the Windy fetch entirely.
+    /// `[weather] provider = "<name>"` but the matching
+    /// `[weather.<name>]` subtable is missing. We reject
+    /// at load time so a misconfigured file fails at
+    /// startup rather than surfacing as a runtime panic
+    /// when the publish loop tries to build a request.
     #[error(
-        "[windy] parameters is missing the dashboard's \
-         required inputs {missing:?}; add them to the \
-         list (v1 dashboard consumes temp, wind, \
-         clouds, precip)"
+        "[weather] provider = \"{provider}\" but the \
+         `[weather.{provider}]` subtable is missing"
     )]
-    MissingRequiredWindyParameters {
-        /// The subset of `REQUIRED_WINDY_PARAMETERS`
-        /// the loaded config doesn't include.
-        missing: Vec<WindyParameter>,
+    MissingProviderSubtable {
+        /// The provider tag that named the missing
+        /// subtable.
+        provider: &'static str,
     },
 }
-
-/// Windy parameters the v1 dashboard needs. If
-/// `[windy] parameters` is non-empty it must contain
-/// all of these; if it is empty the check is skipped
-/// (webhook-only deployments don't call Windy).
-pub const REQUIRED_WINDY_PARAMETERS: &[WindyParameter] = &[
-    WindyParameter::Temp,
-    WindyParameter::Wind,
-    WindyParameter::Clouds,
-    WindyParameter::Precip,
-    WindyParameter::Rh,
-    WindyParameter::WindGust,
-];
 
 /// Top-level configuration.
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Windy Point Forecast settings.
-    pub windy: WindyConfig,
+    /// Weather provider settings.
+    pub weather: WeatherConfig,
     /// TRMNL publishing settings (discriminated union
     /// by `mode`).
     pub trmnl: TrmnlConfig,
@@ -163,29 +114,22 @@ pub struct Config {
 impl Config {
     /// Parse a config from an in-memory TOML string.
     ///
-    /// Does not resolve relative `api_key_file` paths
-    /// or read secrets. Intended for tests, preview
-    /// flows, and validation of user-supplied snippets.
+    /// Intended for tests, preview flows, and
+    /// validation of user-supplied snippets.
     pub fn from_toml_str(toml_text: &str) -> Result<Self, ConfigError> {
-        let cfg: Self = toml::from_str(toml_text).map_err(|source| {
-            ConfigError::ParseToml {
-                path: None,
-                source: Box::new(source),
-            }
-        })?;
-        cfg.validate()?;
-        Ok(cfg)
+        parse_and_validate(toml_text, None)
     }
 
-    /// Load, parse, validate, and eagerly bind secrets.
+    /// Load and parse the config from disk and
+    /// validate it.
     ///
-    /// Relative `api_key_file` paths are resolved
-    /// against the config file's parent directory (or
-    /// the current working directory if the config path
-    /// has no directory component). The Windy API key
-    /// file is read immediately and the trimmed
-    /// contents are cached in memory so that misconfig
-    /// fails fast at startup.
+    /// The only provider currently shipped
+    /// (Open-Meteo) needs no on-disk secrets, so
+    /// `load` is a thin wrapper around TOML parsing.
+    /// The infrastructure for reading referenced
+    /// secret files was removed when the Windy
+    /// provider went away; reinstate it from git
+    /// history if a future provider needs it.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path = path.as_ref();
         let text = fs::read_to_string(path).map_err(|source| {
@@ -194,25 +138,15 @@ impl Config {
                 source,
             }
         })?;
-        let mut cfg: Self =
-            toml::from_str(&text).map_err(|source| ConfigError::ParseToml {
-                path: Some(path.to_path_buf()),
-                source: Box::new(source),
-            })?;
-        let base = config_base_dir(path);
-        cfg.windy.resolve_api_key_path(&base);
-        cfg.validate()?;
-        let key = read_secret(cfg.windy.api_key_file())?;
-        cfg.windy.set_api_key(key);
-        Ok(cfg)
+        parse_and_validate(&text, Some(path))
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        let lat = self.windy.lat;
+        let lat = self.weather.lat;
         if !lat.is_finite() || !(-90.0..=90.0).contains(&lat) {
             return Err(ConfigError::InvalidLatitude(lat));
         }
-        let lon = self.windy.lon;
+        let lon = self.weather.lon;
         if !lon.is_finite() || !(-180.0..=180.0).contains(&lon) {
             return Err(ConfigError::InvalidLongitude(lon));
         }
@@ -230,67 +164,54 @@ impl Config {
                 byos.default_refresh_rate_s,
             ));
         }
-        validate_windy_parameters(&self.windy.parameters)?;
+        self.validate_active_provider()?;
         Ok(())
     }
+
+    fn validate_active_provider(&self) -> Result<(), ConfigError> {
+        match self.weather.provider {
+            ProviderKind::OpenMeteo => {
+                self.weather.open_meteo.as_ref().ok_or(
+                    ConfigError::MissingProviderSubtable {
+                        provider: ProviderKind::OpenMeteo.name(),
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Shared implementation behind
+/// [`Config::from_toml_str`] and [`Config::load`] —
+/// parses the TOML with the appropriate error context
+/// then runs [`Config::validate`].
+fn parse_and_validate(
+    toml_text: &str,
+    path: Option<&Path>,
+) -> Result<Config, ConfigError> {
+    let cfg: Config =
+        toml::from_str(toml_text).map_err(|source| ConfigError::ParseToml {
+            path: path.map(Path::to_path_buf),
+            source: Box::new(source),
+        })?;
+    cfg.validate()?;
+    Ok(cfg)
 }
 
 impl fmt::Display for Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "trmnl mode = {}, render = {}x{} @ {}-bit",
+            "trmnl mode = {}, weather provider = {}, \
+             render = {}x{} @ {}-bit",
             self.trmnl,
+            self.weather.provider.name(),
             self.render.width,
             self.render.height,
             self.render.bit_depth.bits(),
         )
     }
-}
-
-fn config_base_dir(path: &Path) -> PathBuf {
-    match path.parent() {
-        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
-        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    }
-}
-
-fn validate_windy_parameters(
-    parameters: &[WindyParameter],
-) -> Result<(), ConfigError> {
-    if parameters.is_empty() {
-        return Ok(());
-    }
-    let missing: Vec<WindyParameter> = REQUIRED_WINDY_PARAMETERS
-        .iter()
-        .filter(|p| !parameters.contains(p))
-        .copied()
-        .collect();
-    if !missing.is_empty() {
-        return Err(ConfigError::MissingRequiredWindyParameters { missing });
-    }
-    Ok(())
-}
-
-pub(super) fn resolve_relative(base: &Path, p: &mut PathBuf) {
-    if p.is_relative() {
-        *p = base.join(&*p);
-    }
-}
-
-fn read_secret(path: &Path) -> Result<String, ConfigError> {
-    let raw =
-        fs::read_to_string(path).map_err(|source| ConfigError::ReadSecret {
-            path: path.to_path_buf(),
-            source,
-        })?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(ConfigError::EmptySecret {
-            path: path.to_path_buf(),
-        });
-    }
-    Ok(trimmed.to_owned())
 }
 
 #[cfg(test)]
@@ -308,10 +229,12 @@ mod tests {
 
     fn minimal_byos_toml() -> &'static str {
         r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -319,26 +242,23 @@ mod tests {
         "#
     }
 
+    fn open_meteo_subtable(cfg: &Config) -> &OpenMeteoProviderConfig {
+        cfg.weather
+            .open_meteo
+            .as_ref()
+            .expect("open_meteo subtable")
+    }
+
     #[test]
     fn loads_byos_config() {
         let path = fixture_dir().join("config-byos.toml");
         let cfg = Config::load(&path).unwrap();
 
-        assert!((cfg.windy.lat - 46.05).abs() < 1e-9);
-        assert!((cfg.windy.lon - 14.51).abs() < 1e-9);
-        assert_eq!(cfg.windy.model, "gfs");
-        assert_eq!(
-            cfg.windy.parameters,
-            vec![
-                WindyParameter::Temp,
-                WindyParameter::Wind,
-                WindyParameter::Clouds,
-                WindyParameter::Precip,
-                WindyParameter::Rh,
-                WindyParameter::WindGust,
-            ],
-        );
-        assert_eq!(cfg.windy.api_key(), Some("fake-windy-key-for-tests"));
+        assert_eq!(cfg.weather.provider, ProviderKind::OpenMeteo);
+        assert!((cfg.weather.lat - 46.05).abs() < 1e-9);
+        assert!((cfg.weather.lon - 14.51).abs() < 1e-9);
+        let om = open_meteo_subtable(&cfg);
+        assert_eq!(om.model, "icon_eu");
 
         match &cfg.trmnl {
             TrmnlConfig::Byos(byos) => {
@@ -370,23 +290,14 @@ mod tests {
         }
 
         assert_eq!(cfg.render, RenderConfig::default());
-        assert_eq!(cfg.windy.model, "gfs");
-        assert!(cfg.windy.parameters.is_empty());
+        let om = open_meteo_subtable(&cfg);
+        assert_eq!(om.model, "icon_eu");
     }
 
     #[test]
     fn from_toml_str_parses_without_disk_io() {
         let cfg = Config::from_toml_str(minimal_byos_toml()).unwrap();
         assert_eq!(cfg.trmnl.mode_name(), "byos");
-        assert!(cfg.windy.api_key().is_none());
-    }
-
-    #[test]
-    fn resolves_relative_api_key_path_against_config_dir() {
-        let path = fixture_dir().join("config-byos.toml");
-        let cfg = Config::load(&path).unwrap();
-        assert!(cfg.windy.api_key_file().is_absolute());
-        assert!(cfg.windy.api_key_file().exists());
     }
 
     #[test]
@@ -411,55 +322,14 @@ mod tests {
     }
 
     #[test]
-    fn reports_read_secret_error_for_missing_key_file() {
-        let tmp = TempDir::new().unwrap();
-        let cfg_path = tmp.path().join("c.toml");
-        std::fs::write(
-            &cfg_path,
-            "[windy]\n\
-             api_key_file = \"missing.txt\"\n\
-             lat = 0\n\
-             lon = 0\n\
-             [trmnl]\n\
-             mode = \"byos\"\n\
-             public_image_base = \"http://x/\"\n",
-        )
-        .unwrap();
-        let err = Config::load(&cfg_path).unwrap_err();
-        assert!(matches!(err, ConfigError::ReadSecret { .. }));
-    }
-
-    #[test]
-    fn rejects_empty_secret() {
-        let tmp = TempDir::new().unwrap();
-        let key_path = tmp.path().join("empty.txt");
-        std::fs::write(&key_path, "   \n\t  \n").unwrap();
-        let cfg_path = tmp.path().join("c.toml");
-        std::fs::write(
-            &cfg_path,
-            format!(
-                "[windy]\n\
-                 api_key_file = \"{}\"\n\
-                 lat = 0\n\
-                 lon = 0\n\
-                 [trmnl]\n\
-                 mode = \"byos\"\n\
-                 public_image_base = \"http://x/\"\n",
-                key_path.file_name().unwrap().to_str().unwrap(),
-            ),
-        )
-        .unwrap();
-        let err = Config::load(&cfg_path).unwrap_err();
-        assert!(matches!(err, ConfigError::EmptySecret { .. }));
-    }
-
-    #[test]
     fn rejects_mode_without_matching_payload() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -473,10 +343,12 @@ mod tests {
         let text = r#"
             mystery = "field"
 
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -489,10 +361,12 @@ mod tests {
     #[test]
     fn rejects_out_of_range_latitude() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 200.0
             lon = 0.0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -505,10 +379,12 @@ mod tests {
     #[test]
     fn rejects_out_of_range_render_dimensions() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -531,10 +407,12 @@ mod tests {
     #[test]
     fn rejects_zero_render_dimension() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -557,10 +435,12 @@ mod tests {
     #[test]
     fn rejects_zero_refresh_rate() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -574,10 +454,12 @@ mod tests {
     #[test]
     fn rejects_too_large_refresh_rate() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = "byos"
@@ -589,67 +471,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_byos_config_missing_required_windy_parameters() {
-        // An operator upgrading from 0.7 whose
-        // `parameters` list predates the v1 dashboard
-        // should see a clear load-time error rather
-        // than silently getting "Cloudy" on every
-        // sample.
+    fn rejects_open_meteo_provider_without_subtable() {
         let text = r#"
-            [windy]
-            api_key_file = "k.txt"
+            [weather]
+            provider = "open_meteo"
             lat = 0
             lon = 0
-            parameters = ["temp", "wind", "precip"]
 
             [trmnl]
             mode = "byos"
             public_image_base = "http://x/"
         "#;
         let err = Config::from_toml_str(text).unwrap_err();
-        let ConfigError::MissingRequiredWindyParameters { missing } = err
-        else {
-            panic!("expected MissingRequiredWindyParameters, got {err:?}");
+        let ConfigError::MissingProviderSubtable { provider } = err else {
+            panic!("expected MissingProviderSubtable, got {err:?}");
         };
-        assert_eq!(
-            missing,
-            vec![
-                WindyParameter::Clouds,
-                WindyParameter::Rh,
-                WindyParameter::WindGust,
-            ],
-        );
-    }
-
-    #[test]
-    fn accepts_empty_parameters_list_for_webhook_only_deployments() {
-        // An empty parameters list is valid: webhook
-        // mode never calls Windy, so nothing to
-        // validate. The existing `loads_webhook_config`
-        // test exercises this through the on-disk
-        // fixture; pin it here too so the validation
-        // rule change doesn't accidentally tighten
-        // it.
-        let text = r#"
-            [windy]
-            api_key_file = "k.txt"
-            lat = 0
-            lon = 0
-
-            [trmnl]
-            mode = "byos"
-            public_image_base = "http://x/"
-        "#;
-        Config::from_toml_str(text).expect("empty parameters is valid");
+        assert_eq!(provider, "open_meteo");
     }
 
     #[test]
     fn rejects_nan_longitude() {
         let text = r"
-            [windy]
-            api_key_file = 'k.txt'
+            [weather]
+            provider = 'open_meteo'
             lat = 0.0
             lon = nan
+
+            [weather.open_meteo]
 
             [trmnl]
             mode = 'byos'
@@ -660,10 +508,11 @@ mod tests {
     }
 
     #[test]
-    fn display_uses_lowercase_mode() {
+    fn display_uses_lowercase_mode_and_provider() {
         let cfg = Config::from_toml_str(minimal_byos_toml()).unwrap();
         let s = format!("{cfg}");
         assert!(s.contains("trmnl mode = byos"));
+        assert!(s.contains("weather provider = open_meteo"));
         assert!(s.contains("800x480"));
         assert!(s.contains("1-bit"));
     }

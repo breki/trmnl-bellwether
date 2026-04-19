@@ -1,14 +1,19 @@
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
 use axum::body::Bytes;
-use bellwether::clients::windy::{
-    Client as WindyClient, FetchRequest as WindyFetchRequest,
+use bellwether::clients::open_meteo::{
+    Client as OpenMeteoClient, FetchRequest as OpenMeteoFetchRequest,
+    OpenMeteoProvider,
 };
-use bellwether::config::{Config, RenderConfig, TrmnlConfig, WindyConfig};
+use bellwether::config::{
+    Config, ProviderKind, RenderConfig, TrmnlConfig, WeatherConfig,
+};
 use bellwether::publish::{PublishLoop, supervise};
 use bellwether::render::Renderer;
+use bellwether::weather::WeatherProvider;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -53,9 +58,9 @@ struct Cli {
 /// publish loop.
 struct Startup {
     trmnl: TrmnlState,
-    /// Windy config when `--config` was given; `None`
+    /// Weather config when `--config` was given; `None`
     /// in `--dev` mode. Used to spawn the publish loop.
-    windy: Option<WindyConfig>,
+    weather: Option<WeatherConfig>,
     render_cfg: RenderConfig,
     refresh_interval: RefreshInterval,
 }
@@ -64,16 +69,27 @@ struct Startup {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(
-            |_| EnvFilter::new("bellwether_web=debug,tower_http=debug"),
+            |_| {
+                // `bellwether` is the library crate — the
+                // publish loop's INFO/WARN lines
+                // ("published image", "publish tick
+                // failed") come from there and must stay
+                // visible by default, otherwise silent
+                // fetch failures look like a missing BMP.
+                EnvFilter::new(
+                    "bellwether=info,bellwether_web=debug,\
+                     tower_http=debug",
+                )
+            },
         ))
         .init();
 
     let cli = Cli::parse();
     let startup = build_startup(&cli)?;
 
-    if let Some(windy) = &startup.windy {
+    if let Some(weather) = &startup.weather {
         spawn_publish_loop(
-            windy,
+            weather,
             startup.trmnl.clone(),
             startup.refresh_interval,
             startup.render_cfg.clone(),
@@ -106,7 +122,7 @@ async fn main() -> Result<()> {
 /// misconfiguration, missing access token file, or
 /// placeholder render failure.
 fn build_startup(cli: &Cli) -> Result<Startup> {
-    let (windy, public_image_base, refresh_interval, render_cfg) =
+    let (weather, public_image_base, refresh_interval, render_cfg) =
         resolve_serving_config(cli)?;
 
     let access_token = std::env::var(ACCESS_TOKEN_ENV).unwrap_or_default();
@@ -129,22 +145,22 @@ fn build_startup(cli: &Cli) -> Result<Startup> {
 
     Ok(Startup {
         trmnl,
-        windy,
+        weather,
         render_cfg,
         refresh_interval,
     })
 }
 
-/// Returns `(windy, public_image_base, interval, render_cfg)`.
-/// `windy` is `Some` when `--config` was given and
+/// Returns `(weather, public_image_base, interval, render_cfg)`.
+/// `weather` is `Some` when `--config` was given and
 /// `None` for `--dev`.
 fn resolve_serving_config(
     cli: &Cli,
-) -> Result<(Option<WindyConfig>, String, RefreshInterval, RenderConfig)> {
+) -> Result<(Option<WeatherConfig>, String, RefreshInterval, RenderConfig)> {
     match (&cli.config, cli.dev) {
         (Some(path), _) => {
-            let (windy, base, interval, render) = load_byos_config(path)?;
-            Ok((Some(windy), base, interval, render))
+            let (weather, base, interval, render) = load_byos_config(path)?;
+            Ok((Some(weather), base, interval, render))
         }
         (None, true) => {
             tracing::warn!(
@@ -169,7 +185,7 @@ fn resolve_serving_config(
 
 fn load_byos_config(
     path: &Path,
-) -> Result<(WindyConfig, String, RefreshInterval, RenderConfig)> {
+) -> Result<(WeatherConfig, String, RefreshInterval, RenderConfig)> {
     let cfg = Config::load(path)
         .with_context(|| format!("loading config from {}", path.display()))?;
     let TrmnlConfig::Byos(byos) = &cfg.trmnl else {
@@ -182,8 +198,8 @@ fn load_byos_config(
     let base = byos.public_image_base.clone();
     let interval = RefreshInterval::from_secs(byos.default_refresh_rate_s);
     let render = cfg.render.clone();
-    let Config { windy, .. } = cfg;
-    Ok((windy, base, interval, render))
+    let Config { weather, .. } = cfg;
+    Ok((weather, base, interval, render))
 }
 
 fn seed_placeholder(
@@ -206,21 +222,19 @@ fn seed_placeholder(
 /// panic). The handle is detached on purpose —
 /// supervising means we get a log tripwire for
 /// silent-termination bugs, but we deliberately do not
-/// auto-restart: a crash-loop would burn through the
-/// Windy API quota in minutes. If the task dies, the
-/// operator investigates and restarts the process.
+/// auto-restart: a crash-loop would spam the log (and
+/// hammer any future paid provider's API quota) within
+/// minutes. If the task dies, the operator investigates
+/// and restarts the process.
 fn spawn_publish_loop(
-    windy_cfg: &WindyConfig,
+    weather_cfg: &WeatherConfig,
     trmnl: TrmnlState,
     refresh_interval: RefreshInterval,
     render_cfg: RenderConfig,
 ) -> Result<()> {
-    let fetch_request = WindyFetchRequest::from_config(windy_cfg)
-        .context("building Windy fetch request from config")?;
-    let windy = WindyClient::new();
+    let provider = build_provider(weather_cfg)?;
     let publish_loop = PublishLoop::new(
-        windy,
-        fetch_request,
+        provider,
         Renderer::with_default_fonts(),
         render_cfg,
         trmnl,
@@ -228,10 +242,43 @@ fn spawn_publish_loop(
     );
     supervise("publish_loop", publish_loop.run());
     tracing::info!(
-        "publish loop spawned (fetch interval {} s)",
+        "publish loop spawned (provider {}, fetch interval {} s)",
+        weather_cfg.provider.name(),
         refresh_interval.as_secs(),
     );
     Ok(())
+}
+
+/// Construct the concrete [`WeatherProvider`] for the
+/// configured provider tag and wrap it in an
+/// `Arc<dyn …>` for the publish loop.
+///
+/// Provider construction is infallible: the
+/// `[weather.<provider>]` subtable invariant is
+/// enforced at [`Config::load`] time, so this
+/// function can pattern-match on the provider kind
+/// and pull the already-validated subtable without
+/// re-checking.
+fn build_provider(
+    weather_cfg: &WeatherConfig,
+) -> Result<Arc<dyn WeatherProvider>> {
+    match weather_cfg.provider {
+        ProviderKind::OpenMeteo => {
+            let sub = weather_cfg.open_meteo.as_ref().with_context(|| {
+                "[weather.open_meteo] subtable missing; this should \
+                 have been caught by Config::load's validation"
+            })?;
+            let fetch_request = OpenMeteoFetchRequest::from_parts(
+                weather_cfg.lat,
+                weather_cfg.lon,
+                sub,
+            );
+            Ok(Arc::new(OpenMeteoProvider::new(
+                OpenMeteoClient::new(),
+                fetch_request,
+            )))
+        }
+    }
 }
 
 async fn shutdown_signal() {

@@ -1,6 +1,6 @@
 [package]
 name = "bellwether"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2024"
 description = "TRMNL e-ink dashboard server core library"
 license = "MIT"
@@ -22,6 +22,11 @@ path = "src/bin/bellwether/main.rs"
 # anyhow is for the binary entry point only --
 # do NOT use anyhow::Result in lib.rs public API.
 anyhow = "1"
+# `async-trait` is used for the `WeatherProvider` trait
+# so providers can expose `async fn fetch`. One fetch
+# per refresh interval (minutes), so the small allocation
+# per call is not measurable.
+async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 chrono-tz = { version = "0.10", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
@@ -61,9 +66,3 @@ tempfile = "3"
 ttf-parser = "=0.25.1"
 wiremock = "0.6"
 
-[features]
-# Enables tests that hit the real Windy API. Off by
-# default; run with `cargo test --features live-tests
-# -- --ignored live_windy` and the required env vars
-# (BELLWETHER_WINDY_KEY).
-live-tests = []

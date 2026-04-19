@@ -1,7 +1,9 @@
-[windy]
-api_key_file = "windy_key.txt"
+[weather]
+provider = "open_meteo"
 lat = 46.05
 lon = 14.51
+
+[weather.open_meteo]
 
 [trmnl]
 mode = "webhook"

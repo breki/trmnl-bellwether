@@ -4,6 +4,7 @@ pub mod dashboard;
 pub mod publish;
 pub mod render;
 pub mod telemetry;
+pub mod weather;
 
 /// Returns the version string from Cargo.toml.
 pub fn version() -> &'static str {

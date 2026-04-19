@@ -1,29 +1,20 @@
 # Example bellwether config. Copy to `config.toml` and
-# customize. `config.toml` and `windy_key.txt` are
-# gitignored.
+# customize. `config.toml` is gitignored.
 #
 # Run with:  cargo run -p bellwether-web -- --config config.toml
 
-[windy]
-api_key_file = "windy_key.txt"
+[weather]
+# Open-Meteo is free and needs no API key. `model`
+# supports any of Open-Meteo's forecast models — see
+# https://open-meteo.com/en/docs — with `icon_eu`
+# (Slovenia-optimised) as the default.
+provider = "open_meteo"
 # Ljubljana: change to your point of interest.
 lat = 46.05
 lon = 14.51
-model = "gfs"
-# Parameters the publish loop fetches. All six are
-# required for the v1 dashboard:
-#   * `temp`      — big number + daily highs / lows.
-#   * `wind`      — "Wind N km/h XX" label (Windy
-#                   returns this as two u/v component
-#                   series).
-#   * `windGust`  — "Gust N km/h" label in the
-#                   meteorology strip.
-#   * `rh`        — humidity % display + feels-like
-#                   calculation.
-#   * `clouds` + `precip` — condition classifier
-#                   (sunny / partly cloudy / cloudy /
-#                   rain).
-parameters = ["temp", "wind", "clouds", "precip", "rh", "windGust"]
+
+[weather.open_meteo]
+model = "icon_eu"
 
 [trmnl]
 mode = "byos"
@@ -32,12 +23,8 @@ mode = "byos"
 # LAN-visible hostname of the machine running the
 # server before pointing a real device at it.
 public_image_base = "http://localhost:3100/images"
-# 900 s = 15 min. Fine for a TRMNL dashboard, and
-# comfortably inside the Windy Personal plan budget
-# (hundreds of calls/day). Drop to 60 s for local
-# iteration if you're watching the loop run, but
-# don't commit that — it wastes quota on a battery-
-# conscious device.
+# 900 s = 15 min. Fine for a TRMNL dashboard and a
+# comfortable cadence for the e-ink refresh.
 default_refresh_rate_s = 900
 
 [render]

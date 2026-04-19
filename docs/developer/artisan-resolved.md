@@ -6,6 +6,65 @@ findings.
 
 ---
 
+## 2026-04-19 (feat — v0.12.0 Windy → Open-Meteo migration)
+
+### AQ-096 — Provider-error types carried config-shape errors
+**Category:** Abstraction boundary
+**Description:** `OpenMeteoError::NotActiveProvider` and `MissingProviderSubtable` described config-shape issues that duplicate `ConfigError::MissingProviderSubtable`. `FetchRequest::from_config` re-validated an invariant `Config::load` already enforced.
+**Fix:** Dropped `from_config`; added `FetchRequest::from_parts(lat, lon, &OpenMeteoProviderConfig)` as the only construction path. Binary crate pulls the validated subtable from `WeatherConfig` and passes the pieces through. `OpenMeteoError` loses both config-shape variants. `clients/open_meteo/mod.rs`, `bellwether-web/src/main.rs`.
+
+### AQ-097 — `ReadBodyError::NotUtf8(String)` discarded the underlying error
+**Category:** Error handling
+**Description:** The variant held a preformatted string; the real `FromUtf8Error` (byte offset, invalid-byte diagnostic) was thrown away at conversion.
+**Fix:** Changed variant to `NotUtf8(#[from] FromUtf8Error)`. The `source()` chain now preserves the underlying error; providers forward it through `#[from]`. `clients/http_util.rs`.
+
+### AQ-098 — `ReadBodyError` was not a `std::error::Error`
+**Category:** Error handling
+**Description:** Type derived only `Debug` — no `Display`, no `thiserror::Error`, no `source()` chain. Required hand-conversion everywhere.
+**Fix:** Added `thiserror::Error` derive with `#[error(...)]` per variant and `#[from] reqwest::Error` / `FromUtf8Error` for automatic conversion. `clients/http_util.rs`.
+
+### AQ-099 — `OpenMeteoError::Parse(String)` flattened structured errors
+**Category:** Error handling
+**Description:** Both `serde_json::Error` and `FromUtf8Error` were stringified at the first hop, destroying `source()` and programmatic distinction.
+**Fix:** Split into `Json(#[from] serde_json::Error)` and `Utf8(#[from] FromUtf8Error)` variants. Invariant bugs in the parser now surface as `Invariant(WeatherError)` rather than losing type. `clients/open_meteo/mod.rs`.
+
+### AQ-100 — Error message prefix stacking was noisy
+**Category:** Error handling
+**Description:** `WeatherError::Transport("weather transport error: {0}")` + `PublishError::Weather("fetching weather forecast: {0}")` + provider prefix produced logs like `fetching weather forecast: weather transport error: Open-Meteo HTTP error: ...`.
+**Fix:** Changed `WeatherError::Transport` / `::Provider` messages to `"{0}"` — pass through to the inner error. The outer `PublishError::Weather` supplies the "fetching weather forecast" framing once. `weather/error.rs`.
+
+### AQ-101 — `WeatherSnapshot::validate` was not enforced at construction
+**Category:** Type safety
+**Description:** Public fields + `Default` meant any provider could build a `WeatherSnapshot` with mismatched series lengths and skip `validate()`, silently corrupting dashboard output.
+**Fix:** Made fields private. Added `WeatherSnapshotBuilder` (public fields for ergonomic construction) with a `build() -> Result<WeatherSnapshot, WeatherError>` that enforces invariants. Accessors (`temperature_c()`, `wind_kmh()`, etc.) return slices. Illegal snapshots are now unrepresentable. `weather/mod.rs`.
+
+### AQ-102 — `PublishLoop` held `GeoPoint` separately from the provider
+**Category:** Type safety / invariants
+**Description:** Two sources of truth for the same location — provider fetched for lat/lon X, dashboard computed sunrise/sunset for Y. Enforcement lived in a doc comment.
+**Fix:** Added `fn location(&self) -> GeoPoint` to the `WeatherProvider` trait; `PublishLoop::new` dropped the `location` parameter and reads from the provider. Single source of truth. `weather/mod.rs`, `publish/mod.rs`, `clients/open_meteo/mod.rs`.
+
+### AQ-103 — `FetchRequest::from_config` pattern would duplicate per provider
+**Category:** API design
+**Description:** Each new provider would need its own `from_config` + redundant `NotActiveProvider` / `MissingProviderSubtable` variants.
+**Fix:** Delegated provider selection to `bellwether-web::build_provider` (single match on `ProviderKind`). Per-provider constructors take validated pieces via `from_parts`. Paired with AQ-096.
+
+### AQ-104 — `Config::from_toml_str` and `Config::load` duplicated parse logic
+**Category:** API design
+**Description:** Minor — both methods carried the same parse + validate sequence with path-present / path-absent variants.
+**Fix:** Extracted `parse_and_validate(toml_text, Option<&Path>) -> Result<Config, ConfigError>` helper. Both public methods become thin wrappers. `config/mod.rs`.
+
+### AQ-105 — `OpenMeteoError::Http(Box<reqwest::Error>)` leaked a dependency type
+**Category:** Abstraction boundary
+**Description:** `reqwest::Error` as a public enum variant inner type forces downstream matchers to depend on the exact `reqwest` version.
+**Fix:** Changed to `Http(Box<dyn StdError + Send + Sync>)`. Public surface is now stable against reqwest upgrades; `From<reqwest::Error>` still boxes automatically. `clients/open_meteo/mod.rs`.
+
+### AQ-106 — `dashboard/model/mod.rs` was 536 lines with 5 public structs
+**Category:** Module size
+**Description:** Mixed presentation-data types, the public builder, and ~10 private helpers in one file.
+**Fix:** Split into `types.rs` (structs + shape constants) and `build.rs` (`build_model` + helpers). `mod.rs` is a 32-line re-exporter. `dashboard/model/{mod.rs,types.rs,build.rs}`.
+
+---
+
 ## 2026-04-18 (feat — v0.11.0 dashboard SVG rewrite)
 
 ### AQ-091 — `battery_indicator` hand-rolled `<text>` instead of using the shared `text()` helper

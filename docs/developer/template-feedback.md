@@ -11,6 +11,46 @@ marker such as `[Deferred]`, `[Fixed locally]`, or
 
 ---
 
+## 2026-04-19
+
+- **`.gitignore` only hides `/target/` at the workspace
+  root.** The root-anchored leading slash means any
+  crate-local `target/` directory (e.g.
+  `crates/bellwether/target/` when cargo tests run
+  from inside the crate dir) shows as untracked on
+  every `git status`. I had to manually avoid it in
+  every `git add` argument list across ~5 commits this
+  project — easy to forget, easy to accidentally
+  `git add .` it into a real commit. Fix: replace
+  `/target/` with an un-anchored `target/` in the
+  template's `.gitignore` so any `target/` directory
+  at any depth is ignored. Also worth adding
+  `**/target/` for belt-and-braces. **Status:** not
+  fixed in-project (would touch an infra file mid-
+  feature-PR); logged here to batch upstream.
+
+- **`cargo xtask test` missed `--ignored` forwarding.**
+  The template's `xtask test` wrapper took a filter
+  and a `--verbose` flag, but had no way to run
+  `#[ignore]`-tagged tests (the standard Rust idiom
+  for "manual tool" tests that shouldn't run in
+  `xtask validate`). CLAUDE.md explicitly forbids raw
+  `cargo test` in favour of the wrapper, so any
+  project using `#[ignore]` for manual tools (e.g.
+  this project's `generate_dashboard_sample_bmp`)
+  hits a dead end. Fixed in-project in commit
+  `5bcf286` — added an `--ignored: bool` flag to
+  `XCommand::Test`, introduced `TestOptions<'a> {
+  filter, verbose, ignored }` so the signature stays
+  readable when a fourth flag lands, and threaded
+  `--ignored` into the harness args list via an
+  explicit `--` separator. The patch is ~60 lines in
+  `xtask/src/test_cmd.rs` + `xtask/src/main.rs` plus
+  5 `build_args` unit tests. Worth porting to the
+  template so every project gets `#[ignore]`
+  support. **Status:** fixed locally; logged for
+  upstream sync.
+
 ## 2026-04-17
 
 - **Six-field finding format not sticky.** The `/commit`

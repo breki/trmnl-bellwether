@@ -1,21 +1,28 @@
 //! Tests for [`super::PublishLoop`].
 //!
-//! `tick_once` is exercised deterministically against a
-//! `MockSink`. The HTTP-touching path uses `wiremock`
-//! fixtures for happy-path and error coverage.
+//! The loop is exercised deterministically against a
+//! [`MockSink`] plus an in-memory [`FakeProvider`] that
+//! yields a scripted [`WeatherSnapshot`] (or a
+//! scripted [`WeatherError`]).
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde_json::json;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use async_trait::async_trait;
+use chrono::{DateTime, Duration as ChronoDuration, TimeZone, Utc};
 
-use crate::clients::windy::{Client as WindyClient, FetchRequest};
-use crate::config::{RenderConfig, WindyParameter};
+use crate::dashboard::astro::GeoPoint;
 use crate::render::Renderer;
+use crate::weather::{
+    WeatherError, WeatherProvider, WeatherSnapshot, WeatherSnapshotBuilder,
+};
 
 use super::*;
+
+const TEST_LOCATION: GeoPoint = GeoPoint {
+    lat_deg: 46.05,
+    lon_deg: 14.51,
+};
 
 #[derive(Debug, Default)]
 struct MockSink {
@@ -56,33 +63,110 @@ impl ImageSink for Arc<MockSink> {
     }
 }
 
-fn ok_request() -> FetchRequest {
-    FetchRequest {
-        api_key: "test".into(),
-        lat: 46.05,
-        lon: 14.51,
-        model: "gfs".into(),
-        parameters: vec![WindyParameter::Temp, WindyParameter::Wind],
+/// In-memory [`WeatherProvider`] used across these
+/// tests. Returns either a scripted [`WeatherSnapshot`]
+/// on every call, or a fresh [`WeatherError::Provider`]
+/// whose message matches what the test constructed it
+/// with.
+struct FakeProvider {
+    response: FakeResponse,
+}
+
+enum FakeResponse {
+    Ok(WeatherSnapshot),
+    /// Provider-level error. The message is cloned per
+    /// call so the trait object can re-yield a fresh
+    /// boxed error (the outer `WeatherError` is not
+    /// `Clone`).
+    ProviderError(String),
+}
+
+impl FakeProvider {
+    fn ok(snapshot: WeatherSnapshot) -> Arc<dyn WeatherProvider> {
+        Arc::new(Self {
+            response: FakeResponse::Ok(snapshot),
+        })
+    }
+
+    fn provider_error(msg: &str) -> Arc<dyn WeatherProvider> {
+        Arc::new(Self {
+            response: FakeResponse::ProviderError(msg.to_owned()),
+        })
     }
 }
 
-fn forecast_fixture() -> serde_json::Value {
-    json!({
-        "ts": [1_700_000_000_000_i64, 1_700_003_600_000_i64],
-        "units": { "temp-surface": "K" },
-        "temp-surface": [293.15, 294.25],
-    })
+#[async_trait]
+impl WeatherProvider for FakeProvider {
+    fn location(&self) -> GeoPoint {
+        TEST_LOCATION
+    }
+
+    async fn fetch(&self) -> Result<WeatherSnapshot, WeatherError> {
+        match &self.response {
+            FakeResponse::Ok(s) => Ok(s.clone()),
+            FakeResponse::ProviderError(msg) => {
+                Err(WeatherError::Provider(msg.clone().into()))
+            }
+        }
+    }
 }
 
-async fn stubbed_windy(body: serde_json::Value) -> (MockServer, WindyClient) {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/api/point-forecast/v2"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(body))
-        .mount(&server)
-        .await;
-    let client = WindyClient::with_base_url(server.uri());
-    (server, client)
+/// Two-step snapshot matching the older Windy fixture's
+/// timing (two consecutive hourly steps around
+/// 2023-11-14). Enough to exercise the pipeline; not
+/// enough to populate the day tiles.
+fn simple_snapshot() -> WeatherSnapshot {
+    let t0 = Utc.timestamp_millis_opt(1_700_000_000_000).unwrap();
+    let t1 = Utc.timestamp_millis_opt(1_700_003_600_000).unwrap();
+    WeatherSnapshotBuilder {
+        timestamps: vec![t0, t1],
+        temperature_c: vec![Some(20.0), Some(21.1)],
+        humidity_pct: vec![None; 2],
+        wind_kmh: vec![Some(0.0); 2],
+        wind_dir_deg: vec![Some(0.0); 2],
+        gust_kmh: vec![None; 2],
+        cloud_cover_pct: vec![Some(20.0); 2],
+        precip_mm: vec![Some(0.0); 2],
+        warning: None,
+    }
+    .build()
+    .expect("valid snapshot")
+}
+
+/// Rich 72-hour snapshot with a plausible diurnal
+/// temperature swing, steady 40% cloud, and one rainy
+/// hour on day 2 so one of the forecast tiles renders
+/// as `Rain`. Used by the end-to-end render test.
+fn rich_snapshot_at(start: DateTime<Utc>) -> WeatherSnapshot {
+    let n: usize = 72;
+    let mut timestamps: Vec<DateTime<Utc>> = Vec::with_capacity(n);
+    let mut temperature_c: Vec<Option<f64>> = Vec::with_capacity(n);
+    let mut precip_mm: Vec<Option<f64>> = Vec::with_capacity(n);
+    for h in 0..n {
+        let secs = i64::try_from(h).expect("small h") * 3600;
+        timestamps.push(start + ChronoDuration::seconds(secs));
+        #[allow(clippy::cast_precision_loss)]
+        let hour_f = (h % 24) as f64;
+        let diurnal = (hour_f - 12.0).abs() / 12.0;
+        // 10 °C floor, 16 °C ceiling.
+        temperature_c.push(Some(10.0 + (1.0 - diurnal) * 6.0));
+        // One rainy hour on day 2 (index 30).
+        precip_mm.push(Some(if h == 30 { 1.2 } else { 0.0 }));
+    }
+    WeatherSnapshotBuilder {
+        timestamps,
+        temperature_c,
+        humidity_pct: vec![Some(55.0); n],
+        // u=3, v=4 m/s equivalent — 18 km/h SW.
+        wind_kmh: vec![Some(18.0); n],
+        wind_dir_deg: vec![Some(216.87); n],
+        gust_kmh: vec![Some(21.6); n],
+        cloud_cover_pct: vec![Some(40.0); n],
+        precip_mm,
+        warning: None,
+    }
+    .build()
+    .expect("valid rich snapshot")
 }
 
 fn test_render_cfg() -> RenderConfig {
@@ -95,11 +179,9 @@ fn test_render_cfg() -> RenderConfig {
 
 #[tokio::test]
 async fn next_filename_is_monotonic_and_url_safe() {
-    let (_srv, windy) = stubbed_windy(forecast_fixture()).await;
     let sink = MockSink::new();
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
         test_render_cfg(),
         sink,
@@ -125,11 +207,9 @@ async fn next_filename_is_monotonic_and_url_safe() {
 
 #[tokio::test]
 async fn tick_once_publishes_a_bmp_to_the_sink() {
-    let (_server, windy) = stubbed_windy(forecast_fixture()).await;
     let sink = MockSink::new();
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
         test_render_cfg(),
         sink.clone(),
@@ -144,11 +224,9 @@ async fn tick_once_publishes_a_bmp_to_the_sink() {
 
 #[tokio::test]
 async fn tick_once_filenames_are_strictly_increasing() {
-    let (_server, windy) = stubbed_windy(forecast_fixture()).await;
     let sink = MockSink::new();
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
         test_render_cfg(),
         sink.clone(),
@@ -162,12 +240,10 @@ async fn tick_once_filenames_are_strictly_increasing() {
 
 #[tokio::test]
 async fn tick_once_propagates_sink_errors() {
-    let (_server, windy) = stubbed_windy(forecast_fixture()).await;
     let sink = MockSink::new();
     sink.set_scripted(vec![Err("disk full".into())]);
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
         test_render_cfg(),
         sink,
@@ -181,40 +257,33 @@ async fn tick_once_propagates_sink_errors() {
 }
 
 #[tokio::test]
-async fn tick_once_surfaces_windy_api_errors() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/api/point-forecast/v2"))
-        .respond_with(ResponseTemplate::new(500).set_body_string("nope"))
-        .mount(&server)
-        .await;
-    let windy = WindyClient::with_base_url(server.uri());
+async fn tick_once_surfaces_provider_errors() {
     let sink = MockSink::new();
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::provider_error("nope"),
         Renderer::new(),
         test_render_cfg(),
         sink.clone(),
         Duration::from_secs(60),
     );
     let err = loop_.tick_once().await.unwrap_err();
-    assert!(matches!(err, PublishError::Windy(_)));
+    assert!(
+        matches!(err, PublishError::Weather(_)),
+        "expected Weather, got {err:?}",
+    );
     assert!(sink.record().is_empty());
 }
 
 #[tokio::test]
 async fn run_recovers_after_transient_sink_error() {
-    // Test error-swallowing behavior deterministically:
+    // Test error-swallowing behaviour deterministically:
     // script the sink to Err, then Ok. If run() propagates
     // instead of swallowing, the loop never reaches the
     // second publish.
-    let (_server, windy) = stubbed_windy(forecast_fixture()).await;
     let sink = MockSink::new();
     sink.set_scripted(vec![Err("transient".into()), Ok(()), Ok(())]);
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(simple_snapshot()),
         Renderer::new(),
         test_render_cfg(),
         sink.clone(),
@@ -223,9 +292,6 @@ async fn run_recovers_after_transient_sink_error() {
     let handle = tokio::spawn(loop_.run());
     tokio::time::sleep(Duration::from_millis(80)).await;
     handle.abort();
-    // At least two sink calls observed — one failed,
-    // subsequent succeeded. If the loop propagated the
-    // first error, we'd only see one call.
     let calls = sink.record();
     assert!(
         calls.len() >= 2,
@@ -246,63 +312,9 @@ fn trmnl_og_render_cfg() -> RenderConfig {
     }
 }
 
-/// Rich 72-hour forecast fixture: every `*-surface`
-/// series populated with plausible weather. Used by the
-/// end-to-end test that exercises the full model →
-/// SVG → renderer pipeline.
-///
-/// Takes an explicit `start: DateTime<Utc>` so the
-/// fixture is deterministic across test runs — the
-/// assertion test pins a fixed reference day that
-/// produces a full three-tile dashboard regardless of
-/// wall-clock. A caller who wants "now" can pass
-/// `Utc::now() + 30m`.
-fn rich_forecast_fixture_at(
-    start: chrono::DateTime<chrono::Utc>,
-) -> serde_json::Value {
-    let start_ms = start.timestamp_millis();
-    let mut ts: Vec<i64> = Vec::with_capacity(72);
-    let mut temp: Vec<f64> = Vec::with_capacity(72);
-    let mut clouds: Vec<f64> = Vec::with_capacity(72);
-    let mut precip: Vec<f64> = Vec::with_capacity(72);
-    let mut wind_u: Vec<f64> = Vec::with_capacity(72);
-    let mut wind_v: Vec<f64> = Vec::with_capacity(72);
-    for h in 0..72_i64 {
-        ts.push(start_ms + h * 3_600_000);
-        // Temperature wobbles around 10 °C (283.15 K)
-        // with a diurnal swing — not realistic, but
-        // enough that daily highs differ from lows.
-        #[allow(clippy::cast_precision_loss)]
-        let diurnal = ((h % 24) as f64 - 12.0).abs() / 12.0;
-        temp.push(283.15 + (1.0 - diurnal) * 6.0);
-        clouds.push(40.0);
-        // One rainy hour on day 2 (index 30 = roughly
-        // midday of the second full day) so one tile
-        // ends up labelled Rain.
-        precip.push(if h == 30 { 1.2 } else { 0.0 });
-        wind_u.push(3.0);
-        wind_v.push(4.0);
-    }
-    json!({
-        "ts": ts,
-        "units": {
-            "temp-surface": "K",
-            "clouds-surface": "%",
-            "precip-surface": "mm/h",
-            "wind_u-surface": "m/s",
-            "wind_v-surface": "m/s",
-        },
-        "temp-surface": temp,
-        "clouds-surface": clouds,
-        "precip-surface": precip,
-        "wind_u-surface": wind_u,
-        "wind_v-surface": wind_v,
-    })
-}
-
 #[tokio::test]
 async fn tick_once_renders_plausible_trmnl_og_bmp() {
-    // End-to-end sanity: feed a 72-hour forecast through
+    // End-to-end sanity: feed a 72-hour snapshot through
     // the real model → SVG → Renderer::with_default_fonts
     // pipeline at TRMNL OG resolution. Assert the output
     // is a syntactically valid 1-bit BMP of the exact
@@ -312,22 +324,17 @@ async fn tick_once_renders_plausible_trmnl_og_bmp() {
     // contributing — a silently-broken font pipeline
     // would leave the layout mostly white.
     //
-    // The fixture's start time is irrelevant to this
+    // The snapshot's start time is irrelevant to this
     // assertion — `tick_once` calls `Utc::now()` itself
     // for the day-bucketing. The pipeline produces a
     // full BMP in every case (tiles just render as
     // placeholders when they don't match the forecast
     // window), so the size/coverage checks are
     // wall-clock-stable.
-    let start = chrono::Utc::now() + chrono::Duration::minutes(30);
-    let (_server, windy) = stubbed_windy(rich_forecast_fixture_at(start)).await;
-    // Wrap the sink so `tick_once` can publish through
-    // it but this test can still see every byte it
-    // delivered.
+    let start = Utc::now() + ChronoDuration::minutes(30);
     let capture = CapturingSink::default();
     let loop_ = PublishLoop::new(
-        windy,
-        ok_request(),
+        FakeProvider::ok(rich_snapshot_at(start)),
         Renderer::with_default_fonts(),
         trmnl_og_render_cfg(),
         capture.clone(),
@@ -339,10 +346,7 @@ async fn tick_once_renders_plausible_trmnl_og_bmp() {
     assert_eq!(published_name, filename);
 
     // Size: 62 (header + 2-colour palette) + 100 bytes
-    // per row × 480 rows = 48062 exactly. The renderer's
-    // own tests lock this math for arbitrary dimensions;
-    // pin it here too so a publish-loop change that
-    // inadvertently swaps the encoder fails visibly.
+    // per row × 480 rows = 48062 exactly.
     assert_eq!(bmp.len(), 62 + 100 * 480);
 
     // Black-pixel count sanity: the layout has three
@@ -361,27 +365,25 @@ async fn tick_once_renders_plausible_trmnl_og_bmp() {
 /// inspection during layout work. Marked `#[ignore]` so
 /// it doesn't run by default — `cargo xtask test
 /// generate_dashboard_sample_bmp -- --ignored` invokes
-/// it on demand. The BMP it writes opens in any
-/// Windows image viewer.
+/// it on demand. Renders from the same rich snapshot
+/// the end-to-end test uses, so the image is
+/// representative of what the production pipeline
+/// produces.
 #[tokio::test]
 #[ignore = "manual tool: writes target/dashboard-sample.bmp for eyeball"]
 async fn generate_dashboard_sample_bmp() {
-    let now = chrono::Utc::now();
-    let start = now + chrono::Duration::minutes(30);
-    let (_server, windy) = stubbed_windy(rich_forecast_fixture_at(start)).await;
-    let forecast = windy.fetch(&ok_request()).await.expect("fetch");
+    let now = Utc::now();
+    let start = now + ChronoDuration::minutes(30);
     let cfg = trmnl_og_render_cfg();
     let ctx = dashboard::ModelContext {
         tz: cfg.timezone,
-        location: dashboard::astro::GeoPoint {
-            lat_deg: ok_request().lat,
-            lon_deg: ok_request().lon,
-        },
+        location: TEST_LOCATION,
         now,
         telemetry: DeviceTelemetry::default(),
     };
     let now_local = ctx.now.with_timezone(&ctx.tz).time();
-    let model = dashboard::build_model(&forecast, ctx);
+    let snapshot = rich_snapshot_at(start);
+    let model = dashboard::build_model(&snapshot, ctx);
     let svg = dashboard::build_svg(&model, now_local);
     let bmp = Renderer::with_default_fonts()
         .render_to_bmp(&svg, &cfg)

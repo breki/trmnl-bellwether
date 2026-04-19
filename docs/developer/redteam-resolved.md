@@ -5,6 +5,45 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-19 (feat — v0.12.0 Windy → Open-Meteo migration)
+
+### RT-087 — `read_capped_body` allocated past the cap before checking
+**Category:** Security / DoS
+**Description:** `http_util::read_capped_body` called `buf.extend_from_slice(&chunk)` before testing `total > limit`, so a hostile server sending one large HTTP/2 frame could force a multi-megabyte allocation before the cap fired.
+**Fix:** Check `total.saturating_add(chunk_len) > limit` *before* extending the buffer. `clients/http_util.rs:read_capped_body`.
+
+### RT-088 — `series_or_nones` silently padded wire-format drift
+**Category:** Correctness
+**Description:** When Open-Meteo returned a series of different length than `time`, the helper ran `s.resize(n, None)` — half-a-forecast bugs would render as a dashboard with silently-disappearing data.
+**Fix:** Replaced with `pick_series`, which returns the typed `OpenMeteoError::SeriesLengthMismatch` on any length mismatch. Absent series still map to `vec![None; n]`. Added regression test. `clients/open_meteo/mod.rs`.
+
+### RT-089 — Non-finite floats propagated through dashboard calculations
+**Category:** Correctness
+**Description:** Nothing filtered `NaN` / `±Inf` at parse time, so a provider glitch could leak into `CurrentConditions::temp_c` and `feels_like_c`.
+**Fix:** Added `sanitise_non_finite` which maps non-finite IEEE-754 values to `None` inside `pick_series`. Finite sentinels like `-9999` pass through for downstream tolerance. `clients/open_meteo/mod.rs`.
+
+### RT-090 — `nearest_sample_index` could panic on extreme timestamps
+**Category:** Correctness
+**Description:** `(ts - now).num_seconds().saturating_abs()` delegates to chrono's `Sub<DateTime>` which panics on `TimeDelta` overflow. The `saturating_abs` guarded the i64 *after* the panic point.
+**Fix:** Rewrote using raw Unix seconds: `ts.timestamp().saturating_sub(now_s).saturating_abs()`. Never panics. `dashboard/model/build.rs:nearest_sample_index`.
+
+### RT-091 — `f64::to_string` for lat/lon could emit scientific notation
+**Category:** Correctness
+**Description:** Subnormals pass config validation but serialise as `"2.2e-308"`, which Open-Meteo's query parser rejects.
+**Fix:** Format with `format!("{:.6}", req.lat)` — six decimals ≈ 11 cm precision, no exponent. `clients/open_meteo/mod.rs:fetch`.
+
+### RT-092 — `OpenMeteoError::NotActiveProvider` was unreachable and untested
+**Category:** Correctness / dead code
+**Description:** With a single `ProviderKind` variant the `!=` comparison was statically false. First new provider would break the defensive check with no test catching it.
+**Fix:** Dropped `FetchRequest::from_config` entirely. `FetchRequest::from_parts(lat, lon, &sub)` is infallible; `bellwether-web::build_provider` is the single dispatch point. Eliminates `NotActiveProvider` and `MissingProviderSubtable` variants. `clients/open_meteo/mod.rs`, `bellwether-web/src/main.rs`.
+
+### RT-093 — `Policy::none()` turned legitimate 3xx into opaque errors
+**Category:** Correctness
+**Description:** Blocking all redirects meant a CDN canonical-host bounce would surface as an empty 301 body with no diagnostic.
+**Fix:** Switched to `reqwest::redirect::Policy::limited(3)`. `clients/http_util.rs:build_http_client`.
+
+---
+
 ## 2026-04-18 (feat — v0.11.0 dashboard SVG rewrite)
 
 ### RT-082 — Lone 120-px em-dash rendered when current conditions missing

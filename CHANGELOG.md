@@ -10,6 +10,67 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `crate::weather` — provider-neutral forecast types
+  (`WeatherSnapshot`, `WeatherError`,
+  `WeatherProvider` trait) plus
+  `clients::http_util` (shared `build_http_client`,
+  `read_capped_body`, `truncate_with_ellipsis`).
+- Open-Meteo provider (`clients::open_meteo`): free,
+  keyless, GET-based forecast client. Default model
+  `icon_eu` (DWD's European regional model,
+  Slovenia-optimised). Units already match
+  `WeatherSnapshot` so the adapter is a near-trivial
+  passthrough.
+- `Compass8::from_degrees(deg: f64) -> Self` —
+  degree-to-octant bucketing replaces the old u/v
+  `wind_to_compass`. Same half-open sector
+  convention.
+
+### Changed
+
+- **Breaking:** config TOML restructured. The old
+  `[windy]` table is gone. New shape:
+  ```toml
+  [weather]
+  provider = "open_meteo"
+  lat = 46.05
+  lon = 14.51
+
+  [weather.open_meteo]
+  model = "icon_eu"
+  ```
+- `dashboard::build_model` now takes
+  `&WeatherSnapshot` instead of `&Forecast`. Unit
+  conversion (Kelvin → Celsius, u/v → km/h +
+  compass degrees) moved out of `dashboard::model`
+  into provider adapters — the dashboard only sees
+  display units now.
+- `PublishLoop` holds `Arc<dyn WeatherProvider>` +
+  `GeoPoint` instead of `WindyClient +
+  FetchRequest`. `PublishError::Weather(WeatherError)`
+  replaces `::Windy`.
+- Default env filter in `bellwether-web` now
+  includes `bellwether=info` so publish-loop log
+  lines (`published image`, `publish tick failed`)
+  are visible without setting `RUST_LOG`.
+- Duplication threshold raised from 6.0% → 7.0% to
+  absorb the residual parallel-provider structure.
+  See `xtask/src/dupes.rs`.
+
+### Removed
+
+- **Breaking:** Windy Point Forecast provider.
+  Deleted `clients::windy`, `WindyConfig`,
+  `WindyProviderConfig`, `WindyParameter`,
+  `ConfigError::MissingRequiredWindyParameters` /
+  `ReadSecret` / `EmptySecret`,
+  `REQUIRED_WINDY_PARAMETERS`, the `live-tests`
+  feature, and the `scripts/windy-test.ps1` helper.
+  Migration rationale and settled decisions:
+  `docs/developer/weather-provider-migration.md`.
+
 ## [0.11.0] - 2026-04-18
 
 ### Added

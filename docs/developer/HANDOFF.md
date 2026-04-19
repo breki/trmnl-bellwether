@@ -6,6 +6,16 @@ touching anything. Previous handoff was written by the
 scaffolding agent and is now superseded; the scaffold
 is long done.
 
+> **2026-04-19 update:** the Windy Point Forecast
+> provider was replaced with Open-Meteo (free,
+> keyless). Read
+> `docs/developer/weather-provider-migration.md` for
+> the full PR sequence. The sections below that
+> reference `clients::windy`, `windy_key.txt`, and
+> Windy API keys describe an earlier state; the active
+> provider module is now `clients::open_meteo` and
+> there is no on-disk secret.
+
 ## What's built
 
 Six feature commits after the scaffold:

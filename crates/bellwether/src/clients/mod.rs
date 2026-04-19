@@ -1,3 +1,4 @@
 //! HTTP clients for external services.
 
-pub mod windy;
+pub(crate) mod http_util;
+pub mod open_meteo;

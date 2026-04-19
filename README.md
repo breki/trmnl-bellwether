@@ -1,9 +1,9 @@
 # trmnl-bellwether
 
 TRMNL e-ink dashboard server: aggregates data from
-[Home Assistant](https://www.home-assistant.io/) and the
-[Windy Point Forecast API](https://api.windy.com/point-forecast/docs),
-renders server-side e-ink layouts, and serves them to a
+[Home Assistant](https://www.home-assistant.io/) and
+[Open-Meteo](https://open-meteo.com/), renders
+server-side e-ink layouts, and serves them to a
 [TRMNL](https://trmnl.com/) e-paper display via webhook.
 
 Status: **idea / scaffold** (generated from
@@ -12,8 +12,8 @@ Status: **idea / scaffold** (generated from
 ## What's planned
 
 - Fetch Home Assistant entity state via HA REST API
-- Fetch weather from the Windy Point Forecast API
-  (annual subscription already in place)
+- Fetch weather from the Open-Meteo Forecast API
+  (free, keyless)
 - Render customizable layouts server-side as e-ink
   friendly images (black/white or grayscale)
 - Serve images to TRMNL via its webhook protocol
@@ -54,16 +54,16 @@ npx playwright test           # auto-starts servers
 
 ## Running the server
 
-Copy the example config and fill in your Windy API
-key:
+Copy the example config and tune it for your point of
+interest:
 
 ```bash
 cp config.example.toml config.toml
 # edit config.toml: set lat / lon / timezone
-printf '%s' "your-windy-api-key" > windy_key.txt
 ```
 
-Both `config.toml` and `windy_key.txt` are gitignored.
+`config.toml` is gitignored. No API key needed —
+Open-Meteo is free and keyless.
 
 Start the server:
 
@@ -80,9 +80,9 @@ curl http://localhost:3100/api/display | jq
 curl http://localhost:3100/images/dash-00000000.bmp > current.bmp
 ```
 
-For a quick look at the pipeline without a Windy key,
-use `--dev` (serves only the built-in placeholder, no
-fetch loop):
+For a quick look at the pipeline without going through
+Open-Meteo at all, use `--dev` (serves only the
+built-in placeholder, no fetch loop):
 
 ```bash
 cargo run -p bellwether-web -- --dev

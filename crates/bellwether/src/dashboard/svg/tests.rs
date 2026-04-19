@@ -240,9 +240,10 @@ fn weekday_label_is_three_char_english() {
 
 #[test]
 fn calm_wind_renders_as_calm_not_zero_knot_north() {
-    // `wind_to_compass` defaults calm conditions to
-    // Compass8::N. Without special-casing, the cell
-    // would read "Wind N 0 km/h" — a fake north wind.
+    // The snapshot adapter defaults calm conditions
+    // to wind_dir_deg = 0.0 → Compass8::N. Without
+    // special-casing, the cell would read
+    // "Wind N 0 km/h" — a fake north wind.
     let mut model = sample_model();
     if let Some(c) = model.current.as_mut() {
         c.wind_kmh = 0.0;

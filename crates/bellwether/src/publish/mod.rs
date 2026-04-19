@@ -3,16 +3,17 @@
 //! [`PublishLoop`] ties the three things bellwether does
 //! into a single repeating task:
 //!
-//! 1. Fetch a Windy Point Forecast.
+//! 1. Fetch a [`WeatherSnapshot`] from the configured
+//!    [`WeatherProvider`].
 //! 2. Build a [`crate::dashboard::DashboardModel`] from
-//!    the forecast, then render it to a 1-bit BMP via
+//!    the snapshot, then render it to a 1-bit BMP via
 //!    the dashboard SVG builder and
 //!    [`crate::render::Renderer`].
 //! 3. Publish the BMP to an [`ImageSink`] (the web
 //!    crate's `TrmnlState` implements this).
 //!
 //! Errors on any single tick are logged and swallowed:
-//! a one-off Windy outage or transient Pi DNS hiccup
+//! a one-off provider outage or transient Pi DNS hiccup
 //! must not kill the process. The previously-published
 //! image stays served, and the device keeps polling it
 //! until the next tick succeeds.
@@ -28,15 +29,16 @@
 mod tests;
 
 use std::error::Error as StdError;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use chrono::Utc;
 
-use crate::clients::windy::{Client as WindyClient, FetchRequest, WindyError};
 use crate::config::RenderConfig;
 use crate::dashboard;
 use crate::render::{RenderError, Renderer};
+use crate::weather::{WeatherError, WeatherProvider};
 
 /// Opaque sink error type.
 pub type SinkError = Box<dyn StdError + Send + Sync>;
@@ -90,9 +92,10 @@ pub trait ImageSink: Send + Sync {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PublishError {
-    /// Fetching the forecast from Windy failed.
-    #[error("fetching Windy forecast: {0}")]
-    Windy(#[from] WindyError),
+    /// Fetching the forecast from the configured
+    /// [`WeatherProvider`] failed.
+    #[error("fetching weather forecast: {0}")]
+    Weather(#[from] WeatherError),
     /// Rendering the SVG to BMP failed.
     #[error("rendering dashboard: {0}")]
     Render(#[from] RenderError),
@@ -109,8 +112,7 @@ pub enum PublishError {
 /// variant). `run` returns only if the task is cancelled
 /// — it loops forever otherwise.
 pub struct PublishLoop<S: ImageSink> {
-    windy: WindyClient,
-    fetch_request: FetchRequest,
+    provider: Arc<dyn WeatherProvider>,
     renderer: Renderer,
     render_cfg: RenderConfig,
     sink: S,
@@ -123,18 +125,22 @@ impl<S: ImageSink> PublishLoop<S> {
     /// successive fetches; pass the same cadence the
     /// device polls at (typically from
     /// `TrmnlConfig::Byos::default_refresh_rate_s`).
+    ///
+    /// The loop reads the forecast point from
+    /// [`WeatherProvider::location`], so there is a
+    /// single source of truth for lat/lon —
+    /// sunrise/sunset lives at the same point the
+    /// forecast was fetched for.
     #[must_use]
     pub fn new(
-        windy: WindyClient,
-        fetch_request: FetchRequest,
+        provider: Arc<dyn WeatherProvider>,
         renderer: Renderer,
         render_cfg: RenderConfig,
         sink: S,
         interval: Duration,
     ) -> Self {
         Self {
-            windy,
-            fetch_request,
+            provider,
             renderer,
             render_cfg,
             sink,
@@ -174,18 +180,15 @@ impl<S: ImageSink> PublishLoop<S> {
     /// `/api/refresh` handler that wants to trigger a
     /// publish outside the loop's schedule.
     pub async fn tick_once(&self) -> Result<String, PublishError> {
-        let forecast = self.windy.fetch(&self.fetch_request).await?;
+        let snapshot = self.provider.fetch().await?;
         let ctx = dashboard::ModelContext {
             tz: self.render_cfg.timezone,
-            location: dashboard::astro::GeoPoint {
-                lat_deg: self.fetch_request.lat,
-                lon_deg: self.fetch_request.lon,
-            },
+            location: self.provider.location(),
             now: Utc::now(),
             telemetry: self.sink.latest_telemetry(),
         };
         let now_local = ctx.now.with_timezone(&ctx.tz).time();
-        let model = dashboard::build_model(&forecast, ctx);
+        let model = dashboard::build_model(&snapshot, ctx);
         let svg = dashboard::build_svg(&model, now_local);
         let bmp = self.renderer.render_to_bmp(&svg, &self.render_cfg)?;
         let filename = self.next_filename();
@@ -212,10 +215,11 @@ impl<S: ImageSink> PublishLoop<S> {
 /// the log as `error!` rather than disappearing
 /// silently.
 ///
-/// We do **not** auto-restart: a crash-loop would burn
-/// through Windy API quota in minutes. If the task
-/// dies, the operator investigates and restarts the
-/// process manually.
+/// We do **not** auto-restart: a crash-loop could burn
+/// through a provider's API quota in minutes (relevant
+/// for paid providers) and spam logs in every case. If
+/// the task dies, the operator investigates and
+/// restarts the process manually.
 pub fn supervise<F>(
     name: &'static str,
     future: F,

@@ -12,7 +12,7 @@ they require manual approval every time.**
 ## Project Overview
 
 `bellwether` is a Rust server that aggregates data from
-Home Assistant and the Windy Point Forecast API,
+Home Assistant and the Open-Meteo Forecast API,
 renders server-side e-ink layouts (black/white or
 grayscale), and serves them to a TRMNL e-paper display
 via webhook. Intended to run on a Raspberry Pi (host

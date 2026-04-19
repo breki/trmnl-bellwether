@@ -453,9 +453,9 @@ fn meteo_separator(x: u32) -> String {
 }
 
 fn format_wind_cell(kmh: f64, from: Compass8) -> String {
-    // `wind_to_compass` returns `Compass8::N` as a
-    // placeholder for calm conditions; don't confuse
-    // the user by labelling 0 km/h as a north wind.
+    // The snapshot adapter collapses calm winds to
+    // 0 km/h + 0° (→ Compass8::N); don't confuse the
+    // user by labelling 0 km/h as a north wind.
     if round_i32(kmh) == 0 {
         "Wind calm".to_owned()
     } else {

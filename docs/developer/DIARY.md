@@ -5,6 +5,64 @@ reverse chronological order.
 
 ---
 
+### 2026-04-19
+
+- Migrate weather backend from Windy to Open-Meteo (v0.12.0)
+
+    Replaced the Windy Point Forecast API with
+    Open-Meteo behind a `WeatherProvider` trait.
+    Windy wanted ~$900/year for this use case; the
+    free testing key was returning deliberately
+    scrambled data and would have silently poisoned
+    the dashboard in production. Open-Meteo is free
+    and keyless.
+
+    The migration landed as a single PR stitched
+    from seven planned steps (see
+    `docs/developer/weather-provider-migration.md`):
+    (1) new `crate::weather` with `WeatherSnapshot`
+    + `WeatherProvider` trait; (2) Windy → snapshot
+    adapter; (3) `dashboard::build_model` takes
+    `&WeatherSnapshot`; (4) `PublishLoop` holds
+    `Arc<dyn WeatherProvider>`; (5) config
+    restructure to `[weather]` +
+    `[weather.<provider>]` subtables with a
+    `provider` tag; (6) Open-Meteo provider;
+    (7) delete Windy, flip default.
+
+    Unit conversion (Kelvin → °C, m/s → km/h,
+    u/v → compass degrees) moved out of
+    `dashboard::model` into provider adapters —
+    the dashboard only sees display units now.
+    `Compass8::from_degrees(deg)` replaces the old
+    u/v-based `wind_to_compass`. `WeatherSnapshot`
+    uses a builder
+    (`WeatherSnapshotBuilder::build -> Result<_,
+    WeatherError>`) so the
+    length-matches-timestamps invariant is
+    unskippable at construction.
+
+    Along the way: fixed 18 findings from the
+    red-team + artisan review in the same PR —
+    notably a DoS window in `read_capped_body`
+    (allocated past the cap before checking),
+    silent wire-format drift in Open-Meteo's
+    response parser, non-finite float propagation
+    through `feels_like_c`, a chrono overflow
+    panic in `nearest_sample_index`, and the
+    addition of `WeatherProvider::location()` so
+    `PublishLoop` has one source of truth for the
+    forecast point. Extracted
+    `clients::http_util` so both providers share
+    the body-reading + client-builder code.
+
+    Default `RUST_LOG` filter widened to include
+    `bellwether=info` — previously the publish
+    loop's `published image` / `publish tick
+    failed` log lines were filtered out by the
+    binary's default, so a failing fetch looked
+    like a missing BMP.
+
 ### 2026-04-18
 
 - Dense 5-band dashboard layout (v0.11.0)

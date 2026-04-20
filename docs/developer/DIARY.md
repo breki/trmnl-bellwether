@@ -7,6 +7,63 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Replaced hand-rolled weather-icon primitives with
+  Weather Icons (Erik Flowers) (v0.20.0)
+
+    The previous icons in
+    `crates/bellwether/src/dashboard/icons.rs` were
+    ~4-10 circles + rectangles per variant, authored
+    in a 48-user-unit coordinate space. At display
+    size (~96×96 px) the filled-silhouette approach
+    made `Sunny`, `PartlyCloudy`, `Cloudy`, and `Rain`
+    hard to tell apart — the user flagged them as
+    "too pixelated and hard to distinguish".
+
+    Swapped to verbatim SVG files from
+    [Weather Icons](https://erikflowers.github.io/weather-icons/)
+    (SIL OFL 1.1). Bundled under
+    `crates/bellwether/assets/icons/weather-icons/`:
+    `wi-day-sunny.svg`, `wi-day-cloudy.svg`,
+    `wi-cloudy.svg`, `wi-rain.svg`. Pinned
+    byte-for-byte to the upstream `master/svg/` tree.
+
+    Consequence: the icon constants now carry a full
+    `<svg viewBox="0 0 30 30">…`, so the 48-unit
+    fragment convention had to go. `render_weather_icon`
+    in `dashboard/svg/mod.rs` now emits
+    `<svg x=".." y=".." width=".." height="..">…inner
+    document…</svg>` — resvg's nested-SVG semantics
+    scale the inner viewBox to fill the outer box.
+    Cleaner than a `<g transform="translate scale">`
+    wrap and survives icon sources that declare
+    non-30-unit viewBoxes.
+
+    Added `strip_xml_prolog` helper: upstream files
+    start with `<?xml …?>` + generator comments, which
+    are illegal as children of an outer `<svg>`. The
+    helper slices from the first `<svg` occurrence.
+    Kept the upstream files byte-identical so future
+    `/template-sync`-style bulk refreshes don't fight
+    hand-edits.
+
+    License bundling: upstream declares SIL OFL 1.1
+    in its README but doesn't ship the text itself
+    (probed `master/LICENSE*`, `OFL.txt`, all 404).
+    Pulled the canonical OFL.txt from
+    `openfontlicense.org`, customised the header with
+    Erik Flowers' copyright (2013-2015), and committed
+    next to the SVGs with a `README.md` documenting
+    provenance — closes the §2 "bundled and
+    redistributed" condition.
+
+    Deferred to later PRs per HANDOFF: the 9-variant
+    `ConditionCategory` taxonomy, per-instance
+    `fidelity` widget setting, and detailed
+    WMO-specific icons. Today's commit is the icon
+    source swap only; the existing 4-variant
+    `Condition` enum is unchanged, so the dashboard
+    layout and widget API are untouched.
+
 - Added `cargo xtask preview` for rendered-dashboard
   iteration loop (v0.19.0)
 

@@ -575,25 +575,18 @@ fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
         return render_centered_text(bounds, size, PLACEHOLDER);
     };
     let min_dim = bounds.w.min(bounds.h);
-    // Author-space → user-space: each icon is drawn in
-    // a 48-unit box, so dividing by 48 would map scale
-    // 1.0 to 48 px. Multiply by the chosen fraction of
-    // min_dim so the icon fills the available square.
-    let scale_num = min_dim * ICON_FRACTION;
-    let scale_denom = 100 * 48;
-    // Translate so the scaled icon's top-left sits at
-    // the bounds' centre minus half the scaled size.
-    let scaled_size = scale_num / 100;
-    let tx = bounds.x + bounds.w.saturating_sub(scaled_size) / 2;
-    let ty = bounds.y + bounds.h.saturating_sub(scaled_size) / 2;
-    let scale_fmt =
-        format!("{:.4}", f64::from(scale_num) / f64::from(scale_denom));
+    // Icons are embedded as full SVG documents with
+    // their own viewBox; positioning/sizing is handled
+    // by a nested <svg x y width height> wrapper rather
+    // than a <g transform>. The inner viewBox scales
+    // to fill the wrapper's box, preserving aspect.
+    let sz = min_dim * ICON_FRACTION / 100;
+    let tx = bounds.x + bounds.w.saturating_sub(sz) / 2;
+    let ty = bounds.y + bounds.h.saturating_sub(sz) / 2;
+    let icon = icons::strip_xml_prolog(icons::icon_for(condition));
     format!(
-        "<g transform=\"translate({tx} {ty}) scale({scale})\">{icon}</g>",
-        tx = tx,
-        ty = ty,
-        scale = scale_fmt,
-        icon = icons::icon_for(condition),
+        "<svg x=\"{tx}\" y=\"{ty}\" width=\"{sz}\" height=\"{sz}\">\
+         {icon}</svg>"
     )
 }
 

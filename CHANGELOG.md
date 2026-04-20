@@ -22,8 +22,9 @@ and this project adheres to
 - `Renderer::render_to_png` — emits the RGBA raster
   before Floyd–Steinberg dithering, for preview
   tooling that needs to isolate rasteriser vs. dither
-  regressions. Ignores `cfg.bit_depth` (PNG is always
-  8-bit RGBA).
+  regressions. Rejects non-`One` bit depths
+  symmetrically with `render_to_bmp` until 4-bit
+  support lands on both paths.
 - Atomic weather widgets: `weather-icon`, `temp-now`,
   `condition`, `feels-like`, `day-name`, `temp-high`,
   `temp-low`. Weather-domain widgets take a `day`
@@ -55,6 +56,17 @@ and this project adheres to
 
 ### Changed
 
+- Dashboard weather-condition icons swapped from
+  hand-rolled circles + rectangles in a 48-unit
+  coordinate system to
+  [Weather Icons](https://erikflowers.github.io/weather-icons/)
+  by Erik Flowers (SIL OFL 1.1). Four SVGs bundled
+  verbatim at
+  `crates/bellwether/assets/icons/weather-icons/`
+  with the upstream license text alongside. Icon
+  silhouettes are now directional and
+  distinguishable at forecast-tile size (~100×150 px)
+  rather than reading as generic filled blobs.
 - Dashboard font swapped from Atkinson Hyperlegible
   (Regular) to Source Sans 3 (Semibold, weight 600).
   Source Sans 3 uses a dotted zero rather than a

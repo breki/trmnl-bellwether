@@ -39,7 +39,7 @@ children = [
 size = 132
 split = "horizontal"
 children = [
-    { size = 150, widget = "weather-icon", day = "today" },
+    { size = 150, widget = "weather-icon", day = "today", fidelity = "detailed" },
     { size = 250, widget = "temp-now" },
     { flex = 1, split = "vertical", children = [
         { flex = 3, widget = "condition",  day = "today" },

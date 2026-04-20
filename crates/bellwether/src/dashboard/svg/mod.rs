@@ -32,10 +32,10 @@
 
 use chrono::{NaiveTime, Timelike, Weekday};
 
-use super::classify::{Compass8, Condition};
+use super::classify::{Compass8, ConditionCategory, WeatherCode};
 use super::icons;
 use super::layout::{
-    DaySelector, Direction, Layout, LayoutError, PlacedDivider, Rect,
+    DaySelector, Direction, Fidelity, Layout, LayoutError, PlacedDivider, Rect,
     WidgetKind,
 };
 use super::model::DashboardModel;
@@ -46,7 +46,8 @@ use super::model::DashboardModel;
 /// match-on-selector skeleton for every field.
 #[derive(Debug, Clone, Copy)]
 struct DayView {
-    condition: Option<Condition>,
+    category: Option<ConditionCategory>,
+    weather_code: Option<WeatherCode>,
     high_c: Option<i32>,
     low_c: Option<i32>,
 }
@@ -54,14 +55,16 @@ struct DayView {
 fn resolve_day(day: DaySelector, model: &DashboardModel) -> DayView {
     match day {
         DaySelector::Today => DayView {
-            condition: model.current.as_ref().map(|c| c.condition),
+            category: model.current.as_ref().map(|c| c.category),
+            weather_code: model.current.as_ref().and_then(|c| c.weather_code),
             high_c: model.today.as_ref().and_then(|t| t.high_c),
             low_c: model.today.as_ref().and_then(|t| t.low_c),
         },
         DaySelector::Offset(n) => {
             let day = model.days.get(usize::from(n)).and_then(Option::as_ref);
             DayView {
-                condition: day.map(|d| d.condition),
+                category: day.map(|d| d.category),
+                weather_code: day.and_then(|d| d.weather_code),
                 high_c: day.and_then(|d| d.high_c),
                 low_c: day.and_then(|d| d.low_c),
             }
@@ -217,14 +220,16 @@ fn render_widget(
         WidgetKind::HeaderTitle { text } => render_header_title(bounds, text),
         WidgetKind::Clock => render_clock(bounds, ctx.now_local),
         WidgetKind::Battery => render_battery(bounds, ctx.model.battery_pct),
-        WidgetKind::WeatherIcon { day } => {
-            render_weather_icon(bounds, resolve_day(*day, ctx.model).condition)
-        }
+        WidgetKind::WeatherIcon { day, fidelity } => render_weather_icon(
+            bounds,
+            &resolve_day(*day, ctx.model),
+            *fidelity,
+        ),
         WidgetKind::TempNow { .. } => {
             render_temp_now(bounds, current.map(|c| c.temp_c))
         }
         WidgetKind::Condition { day } => {
-            render_condition(bounds, resolve_day(*day, ctx.model).condition)
+            render_condition(bounds, resolve_day(*day, ctx.model).category)
         }
         WidgetKind::FeelsLike { .. } => {
             render_feels_like(bounds, current.map(|c| c.feels_like_c))
@@ -565,14 +570,26 @@ fn render_centered_text(bounds: Rect, size_px: u32, content: &str) -> String {
     )
 }
 
-fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
-    let Some(condition) = condition else {
-        // No data → emit a centred em-dash placeholder
-        // so the cell matches the missing-data
-        // convention used by every other widget
-        // (documented at module top).
+fn render_weather_icon(
+    bounds: Rect,
+    view: &DayView,
+    fidelity: Option<Fidelity>,
+) -> String {
+    let Some(category) = view.category else {
+        // No data → em-dash placeholder (matches the
+        // missing-data convention of every other widget,
+        // documented at module top).
         let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, PLACEHOLDER);
         return render_centered_text(bounds, size, PLACEHOLDER);
+    };
+    // `None` and `Some(Simple)` both coarsen; only
+    // `Some(Detailed)` combined with a recognised WMO
+    // code opts into the specialised glyph.
+    let icon = match (fidelity.unwrap_or_default(), view.weather_code) {
+        (Fidelity::Detailed, Some(WeatherCode::Wmo(code))) => {
+            icons::icon_for_wmo(code)
+        }
+        _ => icons::icon_for_category(category),
     };
     let min_dim = bounds.w.min(bounds.h);
     // Icons are embedded as full SVG documents with
@@ -583,14 +600,6 @@ fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
     let sz = min_dim * ICON_FRACTION / 100;
     let tx = bounds.x + bounds.w.saturating_sub(sz) / 2;
     let ty = bounds.y + bounds.h.saturating_sub(sz) / 2;
-    // `Condition` is still the model's current weather
-    // type; the `to_category` bridge (deprecated, see
-    // HANDOFF PR 4+) routes its four-variant values
-    // through the new nine-variant `icon_for_category`
-    // dispatch so the SVG pipeline doesn't need to care
-    // that the taxonomy expanded.
-    #[allow(deprecated)]
-    let icon = icons::icon_for_category(condition.to_category());
     format!(
         "<svg x=\"{tx}\" y=\"{ty}\" width=\"{sz}\" height=\"{sz}\">{icon}</svg>"
     )
@@ -605,8 +614,11 @@ fn render_temp_now(bounds: Rect, temp_c: Option<f64>) -> String {
     render_centered_text(bounds, size, &content)
 }
 
-fn render_condition(bounds: Rect, condition: Option<Condition>) -> String {
-    let content = condition.map_or(PLACEHOLDER, Condition::label);
+fn render_condition(
+    bounds: Rect,
+    category: Option<ConditionCategory>,
+) -> String {
+    let content = category.map_or(PLACEHOLDER, ConditionCategory::label);
     let size = fit_font_px(bounds, FONT_FRACTION_MEDIUM, content);
     render_centered_text(bounds, size, content)
 }

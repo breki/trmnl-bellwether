@@ -186,7 +186,7 @@ impl Child {
 ///
 /// - [`WidgetKind::WeatherIcon`] and
 ///   [`WidgetKind::Condition`] read from
-///   `model.current.condition` (the *now* reading from
+///   `model.current.category` (the *now* reading from
 ///   Home Assistant).
 /// - [`WidgetKind::TempHigh`] and [`WidgetKind::TempLow`]
 ///   read from `model.today.high_c` /
@@ -286,6 +286,19 @@ pub enum WidgetKind {
     WeatherIcon {
         /// Which day's condition to render.
         day: DaySelector,
+        /// Icon detail level. `None` (field omitted in
+        /// TOML) and `Some(Fidelity::Simple)` both
+        /// dispatch through the nine-way coarse icon
+        /// table; `Some(Fidelity::Detailed)` prefers a
+        /// specialized WMO glyph when a
+        /// `WeatherCode::Wmo(_)` is available, falling
+        /// back to the coarse icon otherwise. Keeping
+        /// the field `Option` lets layout round-trip
+        /// losslessly — a diff reviewer can tell
+        /// "author opted into simple" from "author
+        /// forgot the field".
+        #[serde(default)]
+        fidelity: Option<Fidelity>,
     },
     /// Big current temperature (now reading). Today-only
     /// because forecast days don't have a single "now"
@@ -350,6 +363,28 @@ pub enum WidgetKind {
     Sunrise,
     /// Sunset time.
     Sunset,
+}
+
+/// Icon detail level for [`WidgetKind::WeatherIcon`].
+///
+/// `Simple` (default) dispatches through the nine-way
+/// [`ConditionCategory`](crate::dashboard::classify::ConditionCategory)
+/// table — safe for every data source. `Detailed`
+/// prefers a WMO-specific glyph when the model carries a
+/// recognised code, and silently falls back to the
+/// coarse icon otherwise, so the opt-in never produces
+/// an empty cell.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Fidelity {
+    /// Coarse nine-way dispatch keyed on
+    /// [`ConditionCategory`](crate::dashboard::classify::ConditionCategory).
+    #[default]
+    Simple,
+    /// Detailed dispatch keyed on
+    /// [`WmoCode`](crate::dashboard::classify::WmoCode)
+    /// with a coarse fallback.
+    Detailed,
 }
 
 /// Sizing policy for a [`Child`].

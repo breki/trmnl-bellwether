@@ -12,6 +12,47 @@ and this project adheres to
 
 ### Added
 
+- `Fidelity` enum (`Simple` / `Detailed`) plus an
+  `Option<Fidelity>` field on the `weather-icon`
+  widget's `layout.toml` entry. `Simple` (or the field
+  omitted) keeps the existing nine-way coarse dispatch;
+  `Detailed` opts into specialised WMO-specific glyphs
+  when `icon_for_wmo` has a matching arm. No
+  specialised arms are bundled in this release — the
+  first one lands in the next PR — so `Detailed`
+  currently coarsens identically to `Simple` for all
+  codes, but the plumbing is reachable end-to-end.
+- `ConditionCategory::label` — human-readable label for
+  the condition widget, now the single source of truth
+  for the word next to the big temperature ("Sunny",
+  "Partly cloudy", "Fog", "Thunderstorm", …). Replaces
+  the legacy `Condition::label` on the render path.
+
+### Changed
+
+- `DashboardModel`'s `CurrentConditions` and `DaySummary`
+  now carry a single `category: ConditionCategory` (plus
+  `weather_code: Option<WeatherCode>` for detailed
+  dispatch) instead of the previous `condition: Condition
+  + weather_code` pair. The two-field shape let the fields
+  drift from each other; the collapsed shape pushes all
+  classification into one call to `classify_category` at
+  build time and gives the renderer one unambiguous
+  field to read.
+- `render_weather_icon` now takes `(bounds, &DayView,
+  Option<Fidelity>)` instead of three positional
+  model-derived options, so the `DayView` struct is the
+  contract rather than a loose tuple.
+
+### Removed
+
+- `Condition::to_category` (deprecated in v0.21.0) and
+  the module-internal `resolve_category` helper in
+  `svg/mod.rs` — both obsolete now that the model
+  stores `ConditionCategory` directly.
+
+---
+
 - WMO 4677 `weather_code` plumbed end-to-end from
   Open-Meteo into `WeatherSnapshot`, with a new
   `WeatherCode { Wmo(WmoCode), Unrecognised(u8) }`

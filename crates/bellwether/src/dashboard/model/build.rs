@@ -11,7 +11,10 @@ use chrono::{DateTime, Datelike, Days, NaiveDate, Utc, Weekday};
 use chrono_tz::Tz;
 
 use super::super::astro;
-use super::super::classify::{Compass8, Condition, classify_weather};
+use super::super::classify::{
+    Compass8, ConditionCategory, RAIN_THRESHOLD_MMH, WeatherCode,
+    classify_category,
+};
 use super::super::feels_like::apparent_temperature_c;
 use super::types::{
     CurrentConditions, DAY_TILE_COUNT, DashboardModel, DaySummary,
@@ -86,7 +89,14 @@ fn build_current(
 ) -> Option<CurrentConditions> {
     let idx = nearest_sample_index(snapshot, now)?;
     let temp_c = sample_at(snapshot.temperature_c(), idx)?;
-    let condition = classify_at(snapshot, idx);
+    let weather_code = snapshot.weather_code().get(idx).copied().flatten();
+    // `classify_category` treats cloud=100 / precip=0 as
+    // the "no data" fallback sink, which lands on
+    // `Cloudy` — matching the pre-refactor convention
+    // where missing cloud data defaulted to Cloudy.
+    let cloud_pct = sample_at(snapshot.cloud_cover_pct(), idx).unwrap_or(100.0);
+    let precip_mmh = sample_at(snapshot.precip_mm(), idx).unwrap_or(0.0);
+    let category = classify_category(weather_code, cloud_pct, precip_mmh);
     let wind_kmh = sample_at(snapshot.wind_kmh(), idx).unwrap_or(0.0);
     let wind_compass = sample_at(snapshot.wind_dir_deg(), idx)
         .map_or(Compass8::N, Compass8::from_degrees);
@@ -96,7 +106,8 @@ fn build_current(
     Some(CurrentConditions {
         temp_c,
         feels_like_c,
-        condition,
+        category,
+        weather_code,
         wind_kmh,
         wind_compass,
         gust_kmh,
@@ -144,26 +155,6 @@ fn nearest_sample_index(
         .map(|(i, _)| i)
 }
 
-fn classify_at(snapshot: &WeatherSnapshot, idx: usize) -> Condition {
-    let cloud = sample_at(snapshot.cloud_cover_pct(), idx);
-    let precip = sample_at(snapshot.precip_mm(), idx);
-    classify_sample(cloud, precip)
-}
-
-fn classify_sample(
-    cloud_pct: Option<f64>,
-    precip_mmh: Option<f64>,
-) -> Condition {
-    if let Some(p) = precip_mmh
-        && p >= super::super::classify::RAIN_THRESHOLD_MMH
-    {
-        return Condition::Rain;
-    }
-    cloud_pct.map_or(Condition::Cloudy, |c| {
-        classify_weather(c, precip_mmh.unwrap_or(0.0))
-    })
-}
-
 /// Look up `series[idx]`, treating "index out of
 /// bounds" and "None at index" as equivalent
 /// absences.
@@ -195,6 +186,7 @@ fn build_days(
             snapshot.temperature_c(),
             snapshot.cloud_cover_pct(),
             snapshot.precip_mm(),
+            snapshot.weather_code(),
         ));
     }
     out
@@ -218,12 +210,21 @@ fn summarize_day(
     temps: &[Option<f64>],
     clouds: &[Option<f64>],
     precip: &[Option<f64>],
+    codes: &[Option<WeatherCode>],
 ) -> DaySummary {
+    // Representative code: the first `Some` entry across
+    // the day's hours. Good-enough default — most days
+    // carry a consistent code; detailed glyph quality
+    // only matters once at least one hour has one.
+    let weather_code = indices
+        .iter()
+        .find_map(|&i| codes.get(i).copied().flatten());
     DaySummary {
         weekday: date.weekday(),
         high_c: day_high_celsius(indices, temps),
         low_c: day_low_celsius(indices, temps),
-        condition: day_condition(indices, clouds, precip),
+        category: day_category(indices, clouds, precip, weather_code),
+        weather_code,
     }
 }
 
@@ -278,25 +279,39 @@ fn round_celsius(c: f64) -> Option<i32> {
     Some(rounded)
 }
 
-fn day_condition(
+/// Day-level [`ConditionCategory`] producer. Preserves
+/// the pre-refactor precedence:
+///
+/// 1. If the day has a representative WMO code,
+///    [`classify_category`] lets the code dominate (its
+///    coarsening is the category).
+/// 2. Else any hour above the rain threshold promotes to
+///    `Rain` (via `effective_precip = threshold`).
+/// 3. Else the cloud mean picks between `Clear` /
+///    `PartlyCloudy` / `Cloudy`; `None`-cloud days land
+///    on `Cloudy` (same as the old `classify_sample`
+///    default).
+fn day_category(
     indices: &[usize],
     clouds: &[Option<f64>],
     precip: &[Option<f64>],
-) -> Condition {
-    let rainy =
-        indices.iter().any(|&i| {
-            precip.get(i).copied().flatten().is_some_and(|v| {
-                v >= super::super::classify::RAIN_THRESHOLD_MMH
-            })
-        });
-    if rainy {
-        return Condition::Rain;
-    }
-    let cloud_values = indices
-        .iter()
-        .filter_map(|&i| clouds.get(i).copied().flatten());
-    let cloud_mean = mean(cloud_values);
-    classify_sample(cloud_mean, None)
+    weather_code: Option<WeatherCode>,
+) -> ConditionCategory {
+    let rainy = indices.iter().any(|&i| {
+        precip
+            .get(i)
+            .copied()
+            .flatten()
+            .is_some_and(|v| v >= RAIN_THRESHOLD_MMH)
+    });
+    let cloud_mean = mean(
+        indices
+            .iter()
+            .filter_map(|&i| clouds.get(i).copied().flatten()),
+    )
+    .unwrap_or(100.0);
+    let effective_precip = if rainy { RAIN_THRESHOLD_MMH } else { 0.0 };
+    classify_category(weather_code, cloud_mean, effective_precip)
 }
 
 fn mean<I: IntoIterator<Item = f64>>(values: I) -> Option<f64> {

@@ -142,10 +142,12 @@ fn simple_snapshot() -> WeatherSnapshot {
 /// hour on day 2 so one of the forecast tiles renders
 /// as `Rain`. Used by the end-to-end render test.
 fn rich_snapshot_at(start: DateTime<Utc>) -> WeatherSnapshot {
+    use crate::dashboard::classify::{WeatherCode, WmoCode};
     let n: usize = 72;
     let mut timestamps: Vec<DateTime<Utc>> = Vec::with_capacity(n);
     let mut temperature_c: Vec<Option<f64>> = Vec::with_capacity(n);
     let mut precip_mm: Vec<Option<f64>> = Vec::with_capacity(n);
+    let mut weather_code: Vec<Option<WeatherCode>> = Vec::with_capacity(n);
     for h in 0..n {
         let secs = i64::try_from(h).expect("small h") * 3600;
         timestamps.push(start + ChronoDuration::seconds(secs));
@@ -156,6 +158,19 @@ fn rich_snapshot_at(start: DateTime<Utc>) -> WeatherSnapshot {
         temperature_c.push(Some(10.0 + (1.0 - diurnal) * 6.0));
         // One rainy hour on day 2 (index 30).
         precip_mm.push(Some(if h == 30 { 1.2 } else { 0.0 }));
+        // Salt each forecast day with a distinct WMO
+        // code so the preview exercises multiple icon
+        // arms (Clear now, Fog tomorrow, Thunderstorm
+        // the day after). Once `icon_for_wmo` grows
+        // specialised arms, `fidelity = "detailed"`
+        // widgets will render different glyphs here
+        // without needing further test-data changes.
+        let code = match h / 24 {
+            0 => WmoCode::PartlyCloudy,
+            1 => WmoCode::Fog,
+            _ => WmoCode::Thunderstorm,
+        };
+        weather_code.push(Some(WeatherCode::Wmo(code)));
     }
     WeatherSnapshotBuilder {
         timestamps,
@@ -167,7 +182,7 @@ fn rich_snapshot_at(start: DateTime<Utc>) -> WeatherSnapshot {
         gust_kmh: vec![Some(21.6); n],
         cloud_cover_pct: vec![Some(40.0); n],
         precip_mm,
-        weather_code: vec![None; n],
+        weather_code,
         warning: None,
     }
     .build()

@@ -6,6 +6,35 @@ findings.
 
 ---
 
+## 2026-04-20 (feat — v0.22.0 thread ConditionCategory through the model + `Option<Fidelity>` + specialised hail icon)
+
+### AQ-134 — Duplicate classification logic in the render layer
+**Category:** API design / duplication
+**Description:** `resolve_category` in `svg/mod.rs` re-implemented the `WeatherCode → ConditionCategory` dispatch that `classify_category` already performed in `classify.rs`. Two match sites over `WeatherCode` would drift silently on any future variant (e.g. a second "recognised but ambiguous" arm), since neither helper is reachable from the other.
+**Fix:** Eliminated `resolve_category` entirely by promoting the classification up into the model build (see AQ-135). The render layer now reads a pre-computed `ConditionCategory` off `DayView` with zero dispatch logic. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-135 — Model carried two representations of the same fact
+**Category:** Type safety / invariants
+**Description:** `CurrentConditions` and `DaySummary` held both `condition: Condition` (four-variant legacy) and `weather_code: Option<WeatherCode>` (wire-level). The two could disagree: `svg/tests.rs` deliberately constructed `Condition::Rain` next to `WmoCode::Thunderstorm`. Every consumer had to pick a precedence rule; the two builder paths in `model/build.rs` were set via independent code, so future provider changes could silently diverge.
+**Fix:** Collapsed to a single `category: ConditionCategory` field on both types, populated by `classify_category` at build time, plus `weather_code: Option<WeatherCode>` retained only for the `Fidelity::Detailed` dispatch to specialised glyphs. `Condition` no longer touches the presentation model. Added `ConditionCategory::label` (new public method) replacing the legacy `Condition::label` consumer. `crates/bellwether/src/dashboard/model/{types,build}.rs`, `crates/bellwether/src/dashboard/classify.rs`, `crates/bellwether/src/dashboard/svg/{mod,tests}.rs`, `crates/bellwether/src/dashboard/model/tests.rs`.
+
+### AQ-136 — `render_weather_icon` parameter list redundant with `DayView`
+**Category:** API design
+**Description:** The function accepted `(bounds, Option<WeatherCode>, Option<Condition>, Fidelity)` — three model-derived values the caller already held as a unified `DayView`. Every new "day-derived" field would grow the positional signature; two same-shape `Option` params invite swap-at-call-site bugs.
+**Fix:** Signature now `(bounds: Rect, view: &DayView, fidelity: Option<Fidelity>)`. The struct itself is the contract. `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-137 — `Fidelity` default silently shadowed layout intent
+**Category:** Type design
+**Description:** With `#[serde(default)] fidelity: Fidelity` + `#[derive(Default)] = Simple`, a missing TOML field was indistinguishable from an explicit `fidelity = "simple"` at read time — a diff reviewer couldn't tell "author opted into simple" from "author forgot".
+**Fix:** Changed the field to `Option<Fidelity>`; `None` dispatches Simple via `fidelity.unwrap_or_default()` at the render site. Round-trip is now lossless: omitted stays omitted, explicit stays explicit. `crates/bellwether/src/dashboard/layout/mod.rs`, `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-138 — `pub fn condition_to_category` leaked a migration bridge
+**Category:** Encapsulation
+**Description:** Making the `Condition → ConditionCategory` lift function `pub` meant that removing it later (once `Condition` stops touching the model, which was the stated end state) would be a breaking change for external crates. The function has no legitimate external consumer — callers building categories should go through `classify_category` or hold a `ConditionCategory` directly.
+**Fix:** Privatised to `fn condition_to_category` (module-local) in `classify.rs`. The one remaining caller is `classify_category`'s None-fallback branch, which is same-module. The bridge-mapping test still runs via direct same-module access. `crates/bellwether/src/dashboard/classify.rs`.
+
+---
+
 ## 2026-04-20 (feat — v0.21.0 weather_code plumbing + WMO taxonomy + 9-icon dispatch)
 
 ### AQ-127 — `ConditionCategory::Unknown` was unreachable from the codebase

@@ -105,6 +105,33 @@ pub enum ConditionCategory {
     Unknown,
 }
 
+impl ConditionCategory {
+    /// Short human-readable label for the dashboard
+    /// condition widget — the word that sits next to
+    /// the big temperature. Kept short enough to fit
+    /// the right-hand slot at font size 54 on the
+    /// 800 × 480 layout without wrapping.
+    ///
+    /// `Clear` reads as "Sunny" for user-friendliness
+    /// (matching the legacy label); every other variant
+    /// carries its technical name so the display stays
+    /// honest about the provider's classification.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Clear => "Sunny",
+            Self::PartlyCloudy => "Partly cloudy",
+            Self::Cloudy => "Cloudy",
+            Self::Fog => "Fog",
+            Self::Drizzle => "Drizzle",
+            Self::Rain => "Rain",
+            Self::Snow => "Snow",
+            Self::Thunderstorm => "Thunderstorm",
+            Self::Unknown => "Unknown",
+        }
+    }
+}
+
 /// WMO 4677 weather code — the full lookup table the
 /// Open-Meteo `weather_code` field uses.
 ///
@@ -351,24 +378,23 @@ impl From<WmoCode> for WeatherCode {
     }
 }
 
-impl Condition {
-    /// Promote a legacy [`Condition`] into the
-    /// nine-variant [`ConditionCategory`]. A bridge
-    /// while callers are being migrated away from the
-    /// four-variant type; once migration completes,
-    /// this helper goes away.
-    #[deprecated(note = "temporary bridge during the \
-                Condition → ConditionCategory migration; \
-                remove once the render path consumes \
-                ConditionCategory directly (HANDOFF PR 4+)")]
-    #[must_use]
-    pub fn to_category(self) -> ConditionCategory {
-        match self {
-            Self::Sunny => ConditionCategory::Clear,
-            Self::PartlyCloudy => ConditionCategory::PartlyCloudy,
-            Self::Cloudy => ConditionCategory::Cloudy,
-            Self::Rain => ConditionCategory::Rain,
-        }
+/// Lift a legacy four-variant [`Condition`] into the
+/// nine-variant [`ConditionCategory`]. Internal bridge
+/// used by [`classify_category`]'s cloud+precip fallback
+/// to promote the numeric heuristic's [`Condition`]
+/// output into the richer taxonomy. Private to this
+/// module — the render layer reads `ConditionCategory`
+/// directly now and has no reason to hold a `Condition`.
+/// The coarse heuristic can never produce
+/// Fog/Drizzle/Snow/Thunderstorm/Unknown — only provider
+/// codes can.
+#[must_use]
+fn condition_to_category(c: Condition) -> ConditionCategory {
+    match c {
+        Condition::Sunny => ConditionCategory::Clear,
+        Condition::PartlyCloudy => ConditionCategory::PartlyCloudy,
+        Condition::Cloudy => ConditionCategory::Cloudy,
+        Condition::Rain => ConditionCategory::Rain,
     }
 }
 
@@ -391,7 +417,6 @@ impl Condition {
 ///   signals aren't precise enough — only the provider
 ///   owns detailed codes.
 #[must_use]
-#[allow(deprecated)] // uses Condition::to_category bridge, removed in PR 4+
 pub fn classify_category(
     weather_code: Option<WeatherCode>,
     cloud_pct: f64,
@@ -400,7 +425,7 @@ pub fn classify_category(
     match weather_code {
         Some(WeatherCode::Wmo(code)) => code.coarsen(),
         Some(WeatherCode::Unrecognised(_)) => ConditionCategory::Unknown,
-        None => classify_weather(cloud_pct, precip_mmh).to_category(),
+        None => condition_to_category(classify_weather(cloud_pct, precip_mmh)),
     }
 }
 
@@ -803,21 +828,30 @@ mod tests {
         }
     }
 
-    // ─── Condition::to_category ─────────────────────
+    // ─── condition_to_category ──────────────────────
 
     #[test]
-    #[allow(deprecated)] // locks bridge behaviour until PR 4+ removes it
-    fn legacy_condition_maps_to_the_expected_category() {
-        // Single-source-of-truth translation — matches
-        // the way PR 3 will route the existing 4-icon
-        // pipeline into the 9-icon table.
-        assert_eq!(Condition::Sunny.to_category(), ConditionCategory::Clear);
+    fn condition_promotes_to_the_expected_category() {
+        // Locks the coarse fallback path inside
+        // `classify_category(None, …)`; the numeric
+        // heuristic classifies into `Condition`, this
+        // mapper lifts into `ConditionCategory`.
         assert_eq!(
-            Condition::PartlyCloudy.to_category(),
+            condition_to_category(Condition::Sunny),
+            ConditionCategory::Clear,
+        );
+        assert_eq!(
+            condition_to_category(Condition::PartlyCloudy),
             ConditionCategory::PartlyCloudy,
         );
-        assert_eq!(Condition::Cloudy.to_category(), ConditionCategory::Cloudy,);
-        assert_eq!(Condition::Rain.to_category(), ConditionCategory::Rain);
+        assert_eq!(
+            condition_to_category(Condition::Cloudy),
+            ConditionCategory::Cloudy,
+        );
+        assert_eq!(
+            condition_to_category(Condition::Rain),
+            ConditionCategory::Rain,
+        );
     }
 
     #[test]

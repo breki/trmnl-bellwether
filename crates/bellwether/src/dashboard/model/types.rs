@@ -8,7 +8,7 @@ use chrono::{DateTime, NaiveTime, Utc, Weekday};
 use chrono_tz::Tz;
 
 use super::super::astro::GeoPoint;
-use super::super::classify::{Compass8, Condition};
+use super::super::classify::{Compass8, ConditionCategory, WeatherCode};
 use crate::telemetry::DeviceTelemetry;
 
 /// Minimum number of hourly samples a day must
@@ -101,10 +101,22 @@ pub struct CurrentConditions {
     /// heat-index nor wind-chill branch applies (see
     /// `feels_like` module).
     pub feels_like_c: f64,
-    /// Qualitative condition, used to pick the icon
-    /// and the one-word label ("Sunny", "Cloudy",
-    /// …).
-    pub condition: Condition,
+    /// Weather category, used by the simple-fidelity
+    /// icon dispatch and the condition label. Produced
+    /// by [`classify_category`](super::super::classify::classify_category)
+    /// from the provider's WMO code when available, or
+    /// from the cloud+precip heuristic otherwise — a
+    /// single unified field so the renderer never has
+    /// to pick between two possibly-inconsistent
+    /// classifications.
+    pub category: ConditionCategory,
+    /// Raw provider-supplied WMO 4677 code for the
+    /// sample, retained so `fidelity = "detailed"`
+    /// widgets can dispatch to a specialised glyph.
+    /// `None` means the snapshot had no code for this
+    /// hour; detailed fidelity then falls back to the
+    /// same coarse icon as [`Self::category`].
+    pub weather_code: Option<WeatherCode>,
     /// Wind speed in km/h.
     pub wind_kmh: f64,
     /// Compass octant the wind is blowing *from*.
@@ -157,9 +169,17 @@ pub struct DaySummary {
     /// `None` when the day's temperature series was
     /// entirely null.
     pub low_c: Option<i32>,
-    /// Daily condition: [`Condition::Rain`] if any
-    /// sample reached the precipitation threshold,
-    /// otherwise classified from the day's mean
-    /// cloud cover.
-    pub condition: Condition,
+    /// Daily weather category. Prefers the
+    /// representative WMO code (first `Some` entry in
+    /// the day's hours) when present; otherwise derives
+    /// from the cloud-mean + any-rainy-hour heuristic —
+    /// same rules as the old `Condition`-based path, now
+    /// expressed directly in the richer taxonomy.
+    pub category: ConditionCategory,
+    /// Representative WMO 4677 code for the day (the
+    /// first `Some` entry across the day's samples, if
+    /// any). `None` when no hour in the day carried a
+    /// provider code; detailed-fidelity dispatch then
+    /// coarsens through [`Self::category`].
+    pub weather_code: Option<WeatherCode>,
 }

@@ -7,6 +7,58 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Threaded `ConditionCategory` through the presentation
+  model + reintroduced `Option<Fidelity>` on the
+  weather-icon widget (v0.22.0)
+
+    PR 4 of the WMO-icon sequence sketched in HANDOFF.md.
+    Builds on v0.21.0's two-tier taxonomy (`WmoCode` +
+    `ConditionCategory`) by finally wiring the new
+    taxonomy into the render path, and deletes the
+    deprecated `Condition::to_category` bridge now that
+    nothing reads it.
+
+    **Model shape.** `CurrentConditions` and `DaySummary`
+    used to carry both `condition: Condition` (the
+    four-variant legacy) and `weather_code:
+    Option<WeatherCode>`. Two fields meant every
+    consumer had to pick a precedence rule, and tests
+    deliberately built contradictions between the two
+    (`Condition::Rain` next to `WmoCode::Thunderstorm`).
+    Collapsed to a single `category: ConditionCategory`
+    computed via `classify_category` at build time,
+    plus `weather_code` retained only for the detailed
+    dispatch. `Condition` no longer touches the model.
+
+    **Fidelity.** Reintroduced the `Fidelity { Simple,
+    Detailed }` enum and a `fidelity: Option<Fidelity>`
+    field on `WidgetKind::WeatherIcon`. Chose
+    `Option<Fidelity>` over `Fidelity` + `#[serde(default)]`
+    so `layout.toml` round-trips losslessly — a reviewer
+    can tell "author wrote `fidelity = \"simple\"`" from
+    "author forgot the field". Dispatch unwraps to
+    `Simple` at the render site via
+    `fidelity.unwrap_or_default()`.
+
+    **Render signature.** `render_weather_icon` now
+    takes `(bounds, &DayView, Option<Fidelity>)` instead
+    of three positional options. The struct is the
+    contract — swap-at-call-site bugs become
+    impossible.
+
+    **Condition label.** Added `ConditionCategory::label`
+    ("Sunny"/"Partly cloudy"/… for all nine variants).
+    Replaces the four-variant `Condition::label` on the
+    render path; `Condition` still exists to back the
+    numeric heuristic's output inside
+    `classify_category`'s fallback branch.
+
+    **Five artisan findings (AQ-134..AQ-138) all fixed
+    in-PR.** The big refactor (AQ-135) subsumed AQ-134
+    (duplicate dispatch) and AQ-138 (public migration
+    bridge) by construction — `resolve_category` went
+    away and `condition_to_category` is now private.
+
 - Plumbed WMO `weather_code` end-to-end with a
   9-variant coarse display taxonomy (v0.21.0)
 

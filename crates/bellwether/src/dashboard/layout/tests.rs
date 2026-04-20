@@ -430,7 +430,7 @@ children = [
     }
     for (i, idx) in [5usize, 6, 7].iter().enumerate() {
         match resolved.widgets[*idx].widget {
-            WidgetKind::WeatherIcon { day } => match day {
+            WidgetKind::WeatherIcon { day, .. } => match day {
                 DaySelector::Offset(n) => assert_eq!(usize::from(*n), i),
                 DaySelector::Today => panic!("expected numeric day offset"),
             },
@@ -496,6 +496,7 @@ day = "today"
     match today.node {
         Node::Widget(WidgetKind::WeatherIcon {
             day: DaySelector::Today,
+            ..
         }) => {}
         other => panic!("expected WeatherIcon{{day=Today}}, got {other:?}"),
     }

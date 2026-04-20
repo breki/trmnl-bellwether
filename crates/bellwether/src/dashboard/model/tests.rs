@@ -7,7 +7,7 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc, Weekday};
 use chrono_tz::Tz;
 
 use crate::dashboard::astro::GeoPoint;
-use crate::dashboard::classify::{Compass8, Condition};
+use crate::dashboard::classify::{Compass8, ConditionCategory};
 use crate::telemetry::DeviceTelemetry;
 use crate::weather::{WeatherSnapshot, WeatherSnapshotBuilder};
 
@@ -125,7 +125,7 @@ fn happy_path_fills_current_today_and_three_days() {
 
     let current = model.current.expect("current built");
     assert!((current.temp_c - 10.0).abs() < 1e-9);
-    assert_eq!(current.condition, Condition::Sunny);
+    assert_eq!(current.category, ConditionCategory::Clear);
     assert!((current.wind_kmh - DEFAULT_WIND_KMH).abs() < 1e-9);
     assert_eq!(current.wind_compass, Compass8::SW);
     let gust = current.gust_kmh.expect("gust populated");
@@ -144,7 +144,7 @@ fn happy_path_fills_current_today_and_three_days() {
         let s = slot.as_ref().unwrap_or_else(|| panic!("day {i}: None"));
         assert_eq!(s.high_c, Some(10));
         assert_eq!(s.low_c, Some(10));
-        assert_eq!(s.condition, Condition::Sunny);
+        assert_eq!(s.category, ConditionCategory::Clear);
     }
 
     assert_eq!(model.battery_pct, None);
@@ -258,10 +258,10 @@ fn missing_cloud_and_precip_defaults_day_to_cloudy() {
     let model = build_model(&snap, ctx_utc(now));
 
     let current = model.current.expect("current built");
-    assert_eq!(current.condition, Condition::Cloudy);
+    assert_eq!(current.category, ConditionCategory::Cloudy);
     for slot in &model.days {
         let s = slot.as_ref().expect("day populated");
-        assert_eq!(s.condition, Condition::Cloudy);
+        assert_eq!(s.category, ConditionCategory::Cloudy);
     }
 }
 
@@ -316,7 +316,7 @@ fn day_with_all_null_temp_returns_high_and_low_none() {
     let tile = model.days[0].as_ref().expect("18th tile");
     assert_eq!(tile.high_c, None);
     assert_eq!(tile.low_c, None);
-    assert_eq!(tile.condition, Condition::PartlyCloudy);
+    assert_eq!(tile.category, ConditionCategory::PartlyCloudy);
 }
 
 #[test]
@@ -341,7 +341,7 @@ fn any_rainy_hour_makes_the_whole_day_rain() {
     let now = utc(1_776_423_600_000);
     let model = build_model(&snap, ctx_utc(now));
     let tile = model.days[0].as_ref().expect("18th covered");
-    assert_eq!(tile.condition, Condition::Rain);
+    assert_eq!(tile.category, ConditionCategory::Rain);
 }
 
 #[test]

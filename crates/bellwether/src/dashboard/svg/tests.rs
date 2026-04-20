@@ -1,5 +1,6 @@
 use chrono::NaiveTime;
 
+use super::super::classify::{ConditionCategory, WeatherCode, WmoCode};
 use super::super::model::{
     CurrentConditions, DashboardModel, DaySummary, TodaySummary,
 };
@@ -27,7 +28,8 @@ fn sample_model() -> DashboardModel {
         current: Some(CurrentConditions {
             temp_c: 10.0,
             feels_like_c: 8.0,
-            condition: Condition::PartlyCloudy,
+            category: ConditionCategory::PartlyCloudy,
+            weather_code: Some(WeatherCode::Wmo(WmoCode::PartlyCloudy)),
             wind_kmh: 18.0,
             wind_compass: Compass8::SW,
             gust_kmh: Some(25.0),
@@ -44,19 +46,22 @@ fn sample_model() -> DashboardModel {
                 weekday: Weekday::Sat,
                 high_c: Some(14),
                 low_c: Some(7),
-                condition: Condition::Sunny,
+                category: ConditionCategory::Clear,
+                weather_code: Some(WeatherCode::Wmo(WmoCode::Clear)),
             }),
             Some(DaySummary {
                 weekday: Weekday::Sun,
                 high_c: Some(11),
                 low_c: Some(5),
-                condition: Condition::Rain,
+                category: ConditionCategory::Thunderstorm,
+                weather_code: Some(WeatherCode::Wmo(WmoCode::Thunderstorm)),
             }),
             Some(DaySummary {
                 weekday: Weekday::Mon,
                 high_c: Some(9),
                 low_c: Some(3),
-                condition: Condition::Cloudy,
+                category: ConditionCategory::Fog,
+                weather_code: Some(WeatherCode::Wmo(WmoCode::Fog)),
             }),
         ],
         day_weekdays: [Weekday::Sat, Weekday::Sun, Weekday::Mon],

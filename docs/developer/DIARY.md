@@ -5,7 +5,45 @@ reverse chronological order.
 
 ---
 
-### 2026-04-19
+### 2026-04-20
+
+- Swapped dashboard font to Source Sans 3
+  Semibold (v0.18.0)
+
+    Replaced Atkinson Hyperlegible (Regular) with
+    Adobe's Source Sans 3 at weight 600. User
+    wanted a dotted (non-slashed) zero; Source
+    Sans 3 Semibold also carries more stroke mass
+    than Atkinson Regular, which dithers more
+    robustly to 1-bit e-ink. Public constant
+    `ATKINSON_HYPERLEGIBLE_TTF` renamed to
+    `SOURCE_SANS_3_SEMIBOLD_TTF` (filename-matching
+    and weight-disambiguating, per Artisan review
+    AQ-125). Added `SOURCE_SANS_3_FAMILY` and
+    `SOURCE_SANS_3_WEIGHT` next to the TTF bytes
+    so the SVG builder references them instead of
+    hardcoding literals (AQ-124) — one place to
+    change when the bundled font rolls over.
+
+    Non-obvious wrinkle: svgtypes 0.15.3's
+    unquoted `font-family` parser at
+    `svgtypes/src/font.rs:53-87` tokenises the
+    attribute value as CSS identifiers, which
+    cannot start with a digit. `Source Sans 3`
+    without quotes errors at the `3`, the parser
+    returns `Err`, usvg falls back to the default
+    `Times New Roman` (not in our fontdb), and
+    all text silently drops. Fix: wrap the family
+    in single quotes inside the double-quoted
+    attribute — `font-family="'Source Sans 3'"`
+    — so the quoted-string branch treats the
+    whole value as one family name. Caught by the
+    `with_default_fonts_renders_degree_sign_glyph`
+    end-to-end test (which asserts >200 black
+    pixels after rasterisation); the family-match
+    test at `dashboard/svg/tests.rs:225` asserts
+    the SVG emits exactly the typographic family
+    name (name ID 16) as the TTF advertises.
 
 - Split compound weather widgets into atomic
   widgets (v0.17.0)

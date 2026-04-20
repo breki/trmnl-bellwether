@@ -42,26 +42,52 @@ use resvg::usvg;
 
 use crate::config::{BitDepth, RenderConfig};
 
-/// Bundled Atkinson Hyperlegible (Regular) font bytes.
-/// Exposed as a `&[u8]` so callers that need the raw
-/// data (tests, future alt renderers) can skip a
+/// Bundled Source Sans 3 Semibold font bytes (weight
+/// 600). Exposed as a `&[u8]` so callers that need the
+/// raw data (tests, future alt renderers) can skip a
 /// [`Renderer`] round-trip.
 ///
-/// Atkinson Hyperlegible is a proportional sans-serif
-/// designed by the Braille Institute for maximum
-/// character-to-character distinctiveness — it dithers
-/// cleanly to 1-bit e-ink and stays legible at both
-/// display sizes (~180 px for the big current
-/// temperature) and label sizes (~28-36 px for wind,
-/// day labels). Distributed under the SIL Open Font
-/// Licence (see `crates/bellwether/src/render/fonts/README.md`).
+/// Source Sans 3 is Adobe's humanist sans-serif; the
+/// Semibold weight has enough stroke mass to survive
+/// Floyd-Steinberg dithering to 1-bit e-ink while
+/// remaining legible at both display sizes (~180 px for
+/// the big current temperature) and label sizes
+/// (~28-36 px for wind, day labels). Distinguished from
+/// the previously bundled Atkinson Hyperlegible by
+/// using a dotted (non-slashed) zero. Distributed under
+/// the SIL Open Font Licence (see
+/// `crates/bellwether/src/render/fonts/README.md`).
 ///
 /// Treat this as a trust-controlled bundled asset per
 /// the font trust boundary documented on
 /// [`Renderer::load_font_data`]; do not substitute a
 /// runtime-provided blob.
-pub const ATKINSON_HYPERLEGIBLE_TTF: &[u8] =
-    include_bytes!("fonts/AtkinsonHyperlegible-Regular.ttf");
+///
+/// Paired with [`SOURCE_SANS_3_FAMILY`] and
+/// [`SOURCE_SANS_3_WEIGHT`]: callers emitting `<text>`
+/// into an SVG must use those in the `font-family` and
+/// `font-weight` attributes so fontdb matches this face.
+pub const SOURCE_SANS_3_SEMIBOLD_TTF: &[u8] =
+    include_bytes!("fonts/SourceSans3-Semibold.ttf");
+
+/// Typographic family name advertised by
+/// [`SOURCE_SANS_3_SEMIBOLD_TTF`] (name table ID 16).
+/// SVG `font-family` must match this string for
+/// fontdb to resolve the bundled face.
+///
+/// The bundled TTF is a single weight (600), so this
+/// constant plus [`SOURCE_SANS_3_WEIGHT`] together
+/// identify the face. Keeping them next to the bytes
+/// means a future font swap touches one module rather
+/// than two.
+pub const SOURCE_SANS_3_FAMILY: &str = "Source Sans 3";
+
+/// Weight (CSS numeric) of the bundled
+/// [`SOURCE_SANS_3_SEMIBOLD_TTF`] face. SVG
+/// `font-weight` must match so fontdb's best-match
+/// lookup doesn't silently pull in a different
+/// face if a second weight is ever added.
+pub const SOURCE_SANS_3_WEIGHT: u16 = 600;
 
 /// Upper bound on the SVG-to-pixmap scale factor. Any
 /// SVG whose viewport is so small that scaling to the
@@ -159,7 +185,7 @@ impl Renderer {
     }
 
     /// Build a renderer with the bundled
-    /// [`ATKINSON_HYPERLEGIBLE_TTF`] font pre-loaded.
+    /// [`SOURCE_SANS_3_SEMIBOLD_TTF`] font pre-loaded.
     /// Use this in production code that needs to render
     /// dashboard text; [`Self::new`] stays available
     /// for test code that wants an empty fontdb or
@@ -170,10 +196,10 @@ impl Renderer {
         // fontdb stores the font bytes for its own
         // lifetime, so its API takes owned `Vec<u8>`
         // rather than `&[u8]` (see AQ-034). One
-        // ~54 KiB copy per process is unavoidable; the
+        // per-process copy is unavoidable; the
         // `Renderer` doc tells callers to construct
         // once and share.
-        renderer.load_font_data(ATKINSON_HYPERLEGIBLE_TTF.to_vec());
+        renderer.load_font_data(SOURCE_SANS_3_SEMIBOLD_TTF.to_vec());
         renderer
     }
 

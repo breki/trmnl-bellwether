@@ -225,20 +225,48 @@ fn current_panel_renders_placeholders_when_current_missing() {
 fn font_family_in_svg_matches_ttf_name_table_family() {
     // The SVG's `font-family` attribute must match
     // the family name the bundled TTF's `name` table
-    // advertises. A typo like "Atkinson-Hyperlegible"
+    // advertises. A typo like "SourceSans3"
     // (or a font swap that changed the family name)
     // gets caught here at test time.
     let face =
-        ttf_parser::Face::parse(crate::render::ATKINSON_HYPERLEGIBLE_TTF, 0)
+        ttf_parser::Face::parse(crate::render::SOURCE_SANS_3_SEMIBOLD_TTF, 0)
             .expect("valid TrueType face");
-    let family = face
-        .names()
-        .into_iter()
-        .filter(|n| n.name_id == ttf_parser::name_id::FAMILY)
-        .find_map(|n| n.to_string())
+    // Prefer the typographic family (name ID 16) when
+    // present — for weight-per-file families like
+    // Source Sans 3 Semibold, the legacy `FAMILY`
+    // (name ID 1) bakes the weight into the family
+    // string ("Source Sans 3 Semibold") whereas the
+    // typographic family is the weight-agnostic
+    // "Source Sans 3" that pairs with a `font-weight`
+    // selector. fontdb/resvg match on the typographic
+    // family, so that's what the SVG should emit.
+    let mut typographic = None;
+    let mut legacy = None;
+    for n in face.names() {
+        match n.name_id {
+            ttf_parser::name_id::TYPOGRAPHIC_FAMILY
+                if typographic.is_none() =>
+            {
+                typographic = n.to_string();
+            }
+            ttf_parser::name_id::FAMILY if legacy.is_none() => {
+                legacy = n.to_string();
+            }
+            _ => {}
+        }
+    }
+    let family = typographic
+        .or(legacy)
         .expect("font must expose a family name");
+    // The SVG wraps the family in single quotes inside
+    // the double-quoted attribute value. svgtypes'
+    // unquoted `font-family` parser tokenises as CSS
+    // identifiers, which cannot start with a digit —
+    // without the inner quotes, "Source Sans 3" fails
+    // to parse at the "3" and text silently falls back
+    // to the default font.
     let svg = build_svg(&sample_model(), noon());
-    let expected = format!("font-family=\"{family}\"");
+    let expected = format!("font-family=\"'{family}'\"");
     assert!(
         svg.contains(&expected),
         "SVG font-family does not match TTF family {family:?}",

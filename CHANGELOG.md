@@ -43,6 +43,16 @@ and this project adheres to
 
 ### Changed
 
+- Dashboard font swapped from Atkinson Hyperlegible
+  (Regular) to Source Sans 3 (Semibold, weight 600).
+  Source Sans 3 uses a dotted zero rather than a
+  slashed one and has heavier strokes at the Semibold
+  weight, which dithers cleanly to 1-bit e-ink. Public
+  constant `bellwether::render::ATKINSON_HYPERLEGIBLE_TTF`
+  replaced by `bellwether::render::SOURCE_SANS_3_SEMIBOLD_TTF`,
+  paired with new `SOURCE_SANS_3_FAMILY: &str` and
+  `SOURCE_SANS_3_WEIGHT: u16` so SVG callers don't
+  have to hardcode the font-family/weight separately.
 - **Breaking layout DSL:** compound widgets
   `current-conditions`, `forecast-day`, and
   `today-hi-lo` have been removed. Compose the same

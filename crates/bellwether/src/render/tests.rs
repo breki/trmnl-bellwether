@@ -194,18 +194,21 @@ fn bundled_dashboard_font_parses_as_truetype() {
     // 0x00010000 (version 1.0) — anything else means
     // the file was not committed verbatim.
     assert!(
-        ATKINSON_HYPERLEGIBLE_TTF.len() > 64,
+        SOURCE_SANS_3_SEMIBOLD_TTF.len() > 64,
         "font bytes suspiciously short: {}",
-        ATKINSON_HYPERLEGIBLE_TTF.len(),
+        SOURCE_SANS_3_SEMIBOLD_TTF.len(),
     );
     assert_eq!(
-        &ATKINSON_HYPERLEGIBLE_TTF[..4],
+        &SOURCE_SANS_3_SEMIBOLD_TTF[..4],
         &[0x00, 0x01, 0x00, 0x00],
         "bundled font missing TrueType magic",
     );
-    let face = ttf_parser::Face::parse(ATKINSON_HYPERLEGIBLE_TTF, 0)
+    let face = ttf_parser::Face::parse(SOURCE_SANS_3_SEMIBOLD_TTF, 0)
         .expect("valid TrueType face");
-    assert!(!face.is_variable(), "bundled Atkinson is a static font");
+    assert!(
+        !face.is_variable(),
+        "bundled Source Sans 3 Semibold is a static font",
+    );
 }
 
 #[test]
@@ -220,7 +223,7 @@ fn bundled_dashboard_font_covers_dashboard_glyphs() {
     // time. The ranges cover the full set so future
     // font subsetting can't sneak a gap past a
     // spot-check.
-    let face = ttf_parser::Face::parse(ATKINSON_HYPERLEGIBLE_TTF, 0)
+    let face = ttf_parser::Face::parse(SOURCE_SANS_3_SEMIBOLD_TTF, 0)
         .expect("valid TrueType face");
     // U+2014 EM DASH is the PLACEHOLDER glyph the
     // dashboard emits for every missing-data field
@@ -268,8 +271,9 @@ fn with_default_fonts_renders_degree_sign_glyph() {
     let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
              width="160" height="64" viewBox="0 0 160 64">
           <rect width="160" height="64" fill="white"/>
-          <text x="80" y="48" font-family="Atkinson Hyperlegible"
-                font-size="36" text-anchor="middle"
+          <text x="80" y="48" font-family="'Source Sans 3'"
+                font-weight="600" font-size="36"
+                text-anchor="middle"
                 fill="black">0°C</text>
         </svg>"#;
     let cfg = RenderConfig {

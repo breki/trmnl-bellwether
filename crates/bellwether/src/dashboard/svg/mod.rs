@@ -274,20 +274,26 @@ fn render_widget(
     }
 }
 
-fn wrap(canvas_w: u32, canvas_h: u32, body: &str) -> String {
+fn wrap(w: u32, h: u32, body: &str) -> String {
+    // The family name is single-quoted inside the
+    // double-quoted attribute because svgtypes' unquoted
+    // `font-family` parser tokenises as CSS identifiers,
+    // which can't start with a digit — `Source Sans 3`
+    // unquoted would fail to parse at the `3`, families
+    // would fall back to the default, and all text would
+    // silently drop. The quoted-string branch of the
+    // parser treats the whole value as one family name.
+    let family = crate::render::SOURCE_SANS_3_FAMILY;
+    let weight = crate::render::SOURCE_SANS_3_WEIGHT;
     format!(
-        concat!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" ",
-            "width=\"{w}\" height=\"{h}\" ",
-            "viewBox=\"0 0 {w} {h}\" ",
-            "font-family=\"Atkinson Hyperlegible\">",
-            "<rect width=\"{w}\" height=\"{h}\" fill=\"white\"/>",
-            "{body}",
-            "</svg>",
-        ),
-        w = canvas_w,
-        h = canvas_h,
-        body = body,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" \
+         width=\"{w}\" height=\"{h}\" \
+         viewBox=\"0 0 {w} {h}\" \
+         font-family=\"'{family}'\" \
+         font-weight=\"{weight}\">\
+         <rect width=\"{w}\" height=\"{h}\" fill=\"white\"/>\
+         {body}\
+         </svg>"
     )
 }
 
@@ -496,7 +502,7 @@ const FONT_FRACTION_SMALL: u32 = 42;
 const ICON_FRACTION: u32 = 85;
 
 /// Average glyph width as a percentage of font size
-/// for the bundled Atkinson Hyperlegible face.
+/// for the bundled Source Sans 3 Semibold face.
 /// Slightly generous so short strings don't overflow
 /// edge-case bounds. Used only by [`fit_font_px`] for
 /// the cap-by-width heuristic.

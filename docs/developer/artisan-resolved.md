@@ -6,6 +6,23 @@ findings.
 
 ---
 
+## 2026-04-20 (feat — v0.18.0 Source Sans 3 font swap)
+
+### AQ-124 — Font family string and weight were magic literals disconnected from the font bytes
+**Category:** API Design / coupling
+**Description:** `crates/bellwether/src/dashboard/svg/mod.rs:wrap` hardcoded `"'Source Sans 3'"` and `"600"` inline while the font bytes lived in `crates/bellwether/src/render/mod.rs`. Changing one without the other silently produced a fallback-font render — exactly the failure mode the family-match test comment on `dashboard/svg/tests.rs:225` warns about.
+**Fix:** Added `SOURCE_SANS_3_FAMILY: &str` and `SOURCE_SANS_3_WEIGHT: u16` constants next to `SOURCE_SANS_3_SEMIBOLD_TTF` in `render/mod.rs`. The SVG builder's `wrap` function now references them via `crate::render::{SOURCE_SANS_3_FAMILY, SOURCE_SANS_3_WEIGHT}`. One place to change when the bundled font rolls over.
+
+### AQ-125 — `SOURCE_SANS_3_TTF` hid the load-bearing "Semibold" weight
+**Category:** Naming / type safety
+**Description:** The public constant was `SOURCE_SANS_3_TTF` but the file was `SourceSans3-Semibold.ttf` and the Semibold weight (600) is load-bearing — it's why the font dithers well and is explicitly emitted via `font-weight` in SVG output. Unlike the previous Atkinson Hyperlegible Regular (only one weight bundled), Source Sans 3 has Regular/Semibold/Bold all as plausible choices. A future PR bundling a second weight would make `SOURCE_SANS_3_TTF` actively misleading.
+**Fix:** Renamed to `SOURCE_SANS_3_SEMIBOLD_TTF` throughout. Matches the filename, matches the `font-weight="600"` selector, matches the doc-comment prose. Landed in the same 0.18.0 release that first introduced the Source Sans 3 bundling, so no downstream consumer has had a chance to take a dependency on the old name.
+
+### AQ-126 — Typographic-family lookup in the family-match test duplicated iteration
+**Category:** Readability (test code)
+**Description:** `dashboard/svg/tests.rs:font_family_in_svg_matches_ttf_name_table_family` walked `face.names()` twice via an `.or_else` closure — once filtering for TYPOGRAPHIC_FAMILY (name ID 16) and, on failure, once for FAMILY (name ID 1). Correct but noisier than needed, and the local `names` rebind was only there to work around the borrowed iterator consumption.
+**Fix:** Collapsed into a single `for n in face.names()` loop with a match that writes to `typographic` or `legacy` `Option<String>` on first sight, then `typographic.or(legacy)` at the end for the priority choice.
+
 ## 2026-04-19 (feat — v0.17.0 atomic widgets)
 
 ### AQ-A — `fit_font_px` used u32 arithmetic with silent overflow potential

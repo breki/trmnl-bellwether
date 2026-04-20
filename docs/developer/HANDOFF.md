@@ -1,7 +1,7 @@
 # Handoff to the next agent
 
-Current as of 2026-04-20, version **0.19.0** (commit
-`baddff9`). You are the next agent — read this once
+Current as of 2026-04-20, version **0.20.1** (commit
+`72cef9e`). You are the next agent — read this once
 end-to-end before touching anything.
 
 ## What's built
@@ -21,9 +21,11 @@ feature versions:
 | 0.17.0 | Atomic widgets (`weather-icon`, `temp-now`, etc.) |
 | 0.18.0 | Source Sans 3 Semibold as bundled font |
 | 0.19.0 | `cargo xtask preview` + `Renderer::render_to_png` |
+| 0.20.0 | Weather Icons (Erik Flowers, SIL OFL 1.1) replace hand-rolled SVG primitives for the 4 existing conditions |
+| 0.20.1 | Post-commit review fixes: `bellwether::licenses` + `/licenses` endpoint close OFL §2 binary redistribution; `skip_to_svg_root` hardened; pinned SHA-256 per bundled icon; `each_icon_renders_visible_pixels` test replaces the regressed `fill="black"` invariant |
 
 Every commit goes through `/commit` with red-team +
-artisan reviews; ~115 findings resolved and documented
+artisan reviews; ~130 findings resolved and documented
 in `redteam-resolved.md` / `artisan-resolved.md`. The
 non-obvious design decisions live there, not in code
 comments — read them before changing the design.
@@ -47,31 +49,30 @@ is skipped and the image store is seeded with the
 placeholder BMP only. Good for iterating on the
 landing page or xtask tooling.
 
-## What's immediately in flight (uncommitted WIP)
+`GET /licenses` serves every bundled third-party
+license text as `text/plain`, exempt from the
+access-token middleware. Binary-only redistribution
+of `bellwether-web` (e.g. `cargo xtask deploy` to
+`malina`) satisfies SIL OFL 1.1 §2 via this route —
+the compiled binary carries the OFL text with it.
+Don't let a future refactor gate this route behind
+auth; RT-A in `redteam-resolved.md` explains why.
 
-As of this handoff, these files are modified or
-untracked in the working tree and **belong to the
-next PR, not this one**:
+## Working-tree scratch (not part of any commit)
 
-- `crates/bellwether/src/dashboard/icons.rs` — replaced
-  hand-rolled 4-icon SVG primitives with `include_str!`
-  of upstream Weather Icons SVG files.
-- `crates/bellwether/src/dashboard/svg/mod.rs` — the
-  icon renderer now emits `<svg x y width height>…</svg>`
-  wrapping the bundled SVG document, instead of
-  `<g transform="translate scale">` wrapping a
-  48-user-unit fragment.
-- `crates/bellwether/assets/icons/weather-icons/`
-  (untracked) — 4 SVG files downloaded verbatim from
-  https://github.com/erikflowers/weather-icons
-  (SIL OFL 1.1): `wi-day-sunny.svg`, `wi-day-cloudy.svg`,
-  `wi-cloudy.svg`, `wi-rain.svg`.
+The following untracked paths were created during
+the 2026-04-20 icon exploration and should either be
+deleted or gitignored:
 
-Three stray `.png` screenshots at the workspace root
-(`dashboard-weather-icons.png`, `preview-dashboard-vector.png`,
-`xtask-preview-three-panel.png`) and a `.playwright-mcp/`
-directory are scratch artefacts from the icon
-exploration — either delete them or gitignore them.
+- `dashboard-weather-icons.png`,
+  `preview-dashboard-vector.png`,
+  `xtask-preview-three-panel.png` — Playwright
+  screenshots from the icon exploration.
+- `.playwright-mcp/` — Playwright MCP runtime cache.
+
+None of these are load-bearing; they're just visual
+evidence of the exploration that predates the icon
+swap commit.
 
 ## Recommended next PR sequence
 
@@ -171,8 +172,11 @@ pub fn icon_for_wmo(code: WmoCode) -> &'static str {
 }
 ```
 
-Replace the current 4 hand-rolled-but-now-Weather-Icons
-constants with the 9 category icons from Weather Icons:
+Replace the current 4 Weather Icons constants
+(`SUNNY_RAW`/`PARTLY_CLOUDY_RAW`/`CLOUDY_RAW`/`RAIN_RAW`
+in `dashboard/icons.rs`, landed in v0.20.0) with the
+9 category icons from Weather Icons. Each addition
+needs a SHA-256 pin in `PINNED_SHA256`:
 
 | `ConditionCategory` | Weather Icons filename |
 |---|---|
@@ -209,42 +213,46 @@ from day one.
 
 ## Open decisions / caveats for the next agent
 
-1. **Weather Icons LICENSE file needs bundling.** I
-   tried to download `LICENSE` from
-   `raw.githubusercontent.com/erikflowers/weather-icons/master/LICENSE`
-   and got a 404. The upstream project uses SIL OFL
-   1.1 for the icons per its README, but the exact
-   file path at the tag we're pinned to needs to be
-   found. Look under `font/`, `LICENSE.md`, or
-   `OFL.txt`. Bundle into
-   `crates/bellwether/assets/icons/weather-icons/LICENSE`
-   and link from `docs/credits.md` (new file).
-2. **Dither verification on physical e-ink still
+1. **Dither verification on physical e-ink still
    pending.** `cargo xtask preview` shows vector,
    pre-dither PNG, and 1-bit BMP side-by-side, but no
    one has confirmed the Weather Icons curves look
    acceptable on actual TRMNL hardware yet. Deploy to
-   `malina` before declaring the icon PR merged; if
-   curves shimmer, Meteocons
+   `malina` before declaring the icon work fully
+   done; if curves shimmer, Meteocons
    (https://bas.dev/work/meteocons) is a
    heavier-fill alternative using the same SVG
    integration pattern.
-3. **Coverage impact of the 27-variant `WmoCode` enum.**
+2. **Coverage impact of the 27-variant `WmoCode` enum.**
    Exhaustive-match tests over every variant avoid
    the coverage trap — write one per mapping
    (`TryFrom<u8>` round-trip, `coarsen()`
    correctness). The existing
    `each_icon_covers_every_condition_variant` test at
    `dashboard/icons.rs` is the pattern to follow.
-4. **Sample model needs fidelity coverage.** The
-   `sample_model()` in
-   `dashboard/svg/tests.rs` + the rich snapshot
-   behind `generate_dashboard_sample` currently
-   exercise 4 conditions. After PR 2, extend to cover
-   every `ConditionCategory`; after PR 3 add a
-   `fidelity = "detailed"` instance in the preview
-   layout so `cargo xtask preview` renders both
-   tiers.
+3. **Sample model needs fidelity coverage.** The
+   `sample_model()` in `dashboard/svg/tests.rs` + the
+   rich snapshot behind `generate_dashboard_sample`
+   currently exercise 4 conditions. After PR 2,
+   extend to cover every `ConditionCategory`; after
+   PR 3 add a `fidelity = "detailed"` instance in
+   the preview layout so `cargo xtask preview`
+   renders both tiers.
+4. **New Weather Icons additions must pin a
+   SHA-256.** The `bundled_icons_match_pinned_sha256`
+   test in `dashboard/icons.rs` enforces the
+   "byte-identical to upstream" claim. Any PR adding
+   a new `wi-*.svg` file must add its hash to the
+   `PINNED_SHA256` table or the build fails. Compute
+   via `sha256sum < the-file`.
+5. **`bellwether::licenses::ALL` must grow with
+   every new bundled asset.** If PR 4+ bundles icons
+   from a second upstream source (e.g. Meteocons as
+   a fallback set) its license text must be wired
+   into the `ALL` registry so `/licenses` surfaces
+   it. The `every_bundle_has_a_non_empty_license_entry`
+   test catches empty entries but not missing ones —
+   you have to remember.
 
 ## User working style
 
@@ -254,8 +262,10 @@ from this session:
 - **Fix review findings in-PR**, don't defer. When
   red-team/artisan surface actionable findings, the
   user consistently chooses fix-in-PR over
-  commit-as-is. Commit v0.19.0 fixed all 11 findings
-  before committing.
+  commit-as-is. Recent precedent: v0.19.0 fixed all
+  11 findings before committing; v0.20.1 was itself
+  a 15-finding follow-up to v0.20.0 rather than an
+  open-logs deferral.
 - **Narrate each tool-calling step** in user-visible
   text — don't rely on the Bash `description`
   parameter alone. One-liner per logical step,

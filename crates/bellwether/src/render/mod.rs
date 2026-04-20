@@ -1,18 +1,38 @@
 //! SVG → 1-bit BMP rendering pipeline.
 //!
 //! 1. Parse an SVG string into a `usvg::Tree`.
-//! 2. Rasterize to an RGBA pixmap at the configured
-//!    resolution via `resvg` / `tiny-skia`.
+//! 2. Rasterize to an RGBA pixmap at **2× the target
+//!    resolution** via `resvg` / `tiny-skia`.
 //! 3. Convert RGBA to 8-bit grayscale using the Rec. 601
 //!    luma coefficients, compositing transparent regions
 //!    over white.
-//! 4. Floyd–Steinberg dither to 1-bit.
-//! 5. Encode as a monochrome BMP with the palette
+//! 4. Downsample 2× by averaging 2×2 blocks into one
+//!    target-resolution pixel, producing sub-pixel
+//!    accurate coverage values at every edge.
+//! 5. Floyd–Steinberg dither to 1-bit (with the
+//!    pre-threshold edge snap documented in [`dither`]).
+//! 6. Encode as a monochrome BMP with the palette
 //!    ordering that TRMNL OG firmware calls `"standart"`
 //!    (palette[0] = black, palette[1] = white; bit 1
 //!    renders white). Verified against
 //!    `usetrmnl/firmware` `lib/trmnl/src/bmp.cpp` and
 //!    matches `ImageMagick` / Pillow default output.
+//!
+//! ## Why supersample
+//!
+//! Rasterising directly at target resolution produces
+//! AA edges whose per-pixel coverage is highly variable
+//! — a curve crossing near a pixel centre yields ~50%
+//! grey, one crossing near a pixel boundary yields ~5%
+//! or ~95%. FS diffuses the resulting errors into a
+//! visible "buzzing" pattern along every glyph and
+//! curve on the e-ink panel. Rasterising at 2× and
+//! averaging 2×2 blocks produces smoother, more
+//! consistent edge greys (each output pixel is the
+//! mean of four subsamples), which FS then dithers
+//! into a cleaner pattern. Memory cost is 4× pixmap
+//! size, rasterisation cost is ~4× CPU; both
+//! acceptable for dashboards that update every ~5 min.
 //!
 //! Text rendering requires at least one font to be
 //! loaded via [`Renderer::load_font_data`]. Without any
@@ -95,6 +115,17 @@ pub const SOURCE_SANS_3_WEIGHT: u16 = 600;
 /// rasterizer can otherwise spend seconds on degenerate
 /// input.
 const MAX_SCALE: f32 = 8192.0;
+
+/// Linear multiplier applied to the target pixmap
+/// dimensions before rasterisation. Each output pixel
+/// is reconstructed from `SUPERSAMPLE_FACTOR.pow(2)`
+/// subsamples averaged together in [`downsample_block_average`].
+/// `2` is the workhorse value — it cuts shimmer on
+/// e-ink visibly while keeping memory at 4× and CPU
+/// at ~4×, both within the per-tick budget of a
+/// 5-minute refresh loop. Raising to `3` would be 9×
+/// of each for diminishing returns.
+const SUPERSAMPLE_FACTOR: u32 = 2;
 
 /// Errors returned by [`Renderer::render_to_bmp`].
 #[derive(Debug, thiserror::Error)]
@@ -253,6 +284,9 @@ impl Renderer {
 
     /// Render an SVG string to a 1-bit BMP byte vector
     /// sized according to `cfg.width` × `cfg.height`.
+    /// Internally rasterises at [`SUPERSAMPLE_FACTOR`]×
+    /// the target resolution and averages 2×2 blocks
+    /// before dithering; see the module doc for why.
     pub fn render_to_bmp(
         &self,
         svg_text: &str,
@@ -263,8 +297,22 @@ impl Renderer {
                 depth: cfg.bit_depth,
             });
         }
-        let pixmap = self.rasterize(svg_text, cfg)?;
-        let grayscale = rgba_to_luma(pixmap.data());
+        let hi_w = cfg.width.checked_mul(SUPERSAMPLE_FACTOR).ok_or(
+            RenderError::RasterFailed {
+                width: cfg.width,
+                height: cfg.height,
+            },
+        )?;
+        let hi_h = cfg.height.checked_mul(SUPERSAMPLE_FACTOR).ok_or(
+            RenderError::RasterFailed {
+                width: cfg.width,
+                height: cfg.height,
+            },
+        )?;
+        let pixmap = self.rasterize_at(svg_text, hi_w, hi_h)?;
+        let hi_gray = rgba_to_luma(pixmap.data());
+        let grayscale =
+            downsample_block_average(&hi_gray, hi_w, hi_h, SUPERSAMPLE_FACTOR);
         let bits = dither::floyd_steinberg(&grayscale, cfg.width, cfg.height);
         Ok(bmp::encode_1bit_bmp(&bits, cfg.width, cfg.height))
     }
@@ -305,22 +353,35 @@ impl Renderer {
     }
 
     /// Shared SVG-parse + resvg-rasterize stage used by
-    /// both [`Self::render_to_bmp`] and
-    /// [`Self::render_to_png`]. Returns the raw RGBA
-    /// pixmap before any palette reduction.
+    /// [`Self::render_to_bmp`] (via `rasterize_at` at
+    /// supersampled dimensions) and
+    /// [`Self::render_to_png`] (at native dimensions so
+    /// the preview viewer shows the pre-dither raster
+    /// untouched). Returns the raw RGBA pixmap before
+    /// any palette reduction.
     fn rasterize(
         &self,
         svg_text: &str,
         cfg: &RenderConfig,
     ) -> Result<resvg::tiny_skia::Pixmap, RenderError> {
+        self.rasterize_at(svg_text, cfg.width, cfg.height)
+    }
+
+    /// Rasterise an SVG string to an RGBA pixmap of the
+    /// given raw pixel dimensions. Shared between the
+    /// BMP path (which supersamples) and the PNG path
+    /// (which doesn't).
+    fn rasterize_at(
+        &self,
+        svg_text: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<resvg::tiny_skia::Pixmap, RenderError> {
         let tree = usvg::Tree::from_str(svg_text, &self.options)
             .map_err(|e| RenderError::ParseSvg(e.to_string()))?;
 
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(cfg.width, cfg.height)
-            .ok_or(RenderError::RasterFailed {
-            width: cfg.width,
-            height: cfg.height,
-        })?;
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+            .ok_or(RenderError::RasterFailed { width, height })?;
 
         // Scale the SVG's viewport to fill the pixmap.
         // Using independent X/Y factors lets us render a
@@ -328,12 +389,13 @@ impl Renderer {
         // rather than silently letterboxing. `as f32`
         // from `u32` may lose precision above 2^24, but
         // our target resolutions are far below that
-        // (TRMNL X tops out at 1872 px).
+        // (TRMNL X tops out at 1872 px; 2× supersample
+        // caps at 3744).
         let svg_size = tree.size();
         #[allow(clippy::cast_precision_loss)]
-        let scale_x = cfg.width as f32 / svg_size.width();
+        let scale_x = width as f32 / svg_size.width();
         #[allow(clippy::cast_precision_loss)]
-        let scale_y = cfg.height as f32 / svg_size.height();
+        let scale_y = height as f32 / svg_size.height();
         if !scale_x.is_finite()
             || !scale_y.is_finite()
             || scale_x <= 0.0
@@ -348,6 +410,67 @@ impl Renderer {
         resvg::render(&tree, transform, &mut pixmap.as_mut());
         Ok(pixmap)
     }
+}
+
+/// Downsample a grayscale buffer by averaging
+/// `factor × factor` blocks into a single output pixel.
+/// Source dimensions must both be divisible by
+/// `factor`; the only caller
+/// ([`Renderer::render_to_bmp`]) guarantees this
+/// because it multiplies the target size by
+/// `SUPERSAMPLE_FACTOR` to get the source size.
+///
+/// Uses integer arithmetic with round-to-nearest
+/// (`+ half_divisor` before dividing) so a true 50%
+/// block averages to 128 rather than 127 — matters for
+/// the FS threshold, which is `>= 128` → white.
+///
+/// # Panics
+///
+/// Panics if `src.len() != (src_w * src_h) as usize`,
+/// if `src_w % factor != 0`, if `src_h % factor != 0`,
+/// or if `factor == 0`.
+#[must_use]
+fn downsample_block_average(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    factor: u32,
+) -> Vec<u8> {
+    assert!(factor >= 1, "supersample factor must be ≥ 1");
+    assert_eq!(
+        src.len() as u64,
+        u64::from(src_w) * u64::from(src_h),
+        "source buffer length must equal src_w * src_h",
+    );
+    assert_eq!(src_w % factor, 0, "src_w must be divisible by factor");
+    assert_eq!(src_h % factor, 0, "src_h must be divisible by factor");
+
+    let dst_w = src_w / factor;
+    let dst_h = src_h / factor;
+    let src_w_usize = src_w as usize;
+    let factor_usize = factor as usize;
+    let block_size = factor_usize * factor_usize;
+    let half = u32::try_from(block_size / 2).unwrap_or(u32::MAX);
+    let divisor = u32::try_from(block_size).unwrap_or(u32::MAX).max(1);
+
+    let mut out = Vec::with_capacity((dst_w as usize) * (dst_h as usize));
+    for dy in 0..dst_h as usize {
+        for dx in 0..dst_w as usize {
+            let sx0 = dx * factor_usize;
+            let sy0 = dy * factor_usize;
+            let mut sum: u32 = 0;
+            for by in 0..factor_usize {
+                let row_start = (sy0 + by) * src_w_usize + sx0;
+                for bx in 0..factor_usize {
+                    sum += u32::from(src[row_start + bx]);
+                }
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            out.push(((sum + half) / divisor) as u8);
+        }
+    }
+    out
 }
 
 /// Fully opaque white, used as the compositing
@@ -382,4 +505,85 @@ fn rgba_to_luma(rgba: &[u8]) -> Vec<u8> {
 /// Alpha-composite one channel over the [`WHITE_BG`].
 fn composite(channel: u8, alpha: u32, inv_alpha: u32) -> u32 {
     (u32::from(channel) * alpha + WHITE_BG * inv_alpha) / 255
+}
+
+#[cfg(test)]
+mod downsample_tests {
+    use super::downsample_block_average;
+
+    #[test]
+    fn factor_1_is_identity() {
+        // A no-op downsample reproduces the source
+        // verbatim; locks the degenerate case so a
+        // future supersample toggle (e.g. factor = 1
+        // for preview-fast mode) can still pass through
+        // without surprises.
+        let src = [0_u8, 64, 128, 192, 255, 10];
+        let out = downsample_block_average(&src, 3, 2, 1);
+        assert_eq!(out, src.to_vec());
+    }
+
+    #[test]
+    fn factor_2_averages_four_pixels() {
+        // 2×2 source, factor 2 → single output pixel =
+        // (0 + 100 + 200 + 300) / 4 = 150.
+        let src = [0_u8, 100, 200, 255];
+        let out = downsample_block_average(&src, 2, 2, 2);
+        // rounded: (0 + 100 + 200 + 255 + 2) / 4 = 139.
+        assert_eq!(out, vec![139]);
+    }
+
+    #[test]
+    fn factor_2_rounds_half_up_at_exact_midpoint() {
+        // Four samples of 127 and 128 each — sum = 510,
+        // /4 with round-to-nearest = 128 (not 127). The
+        // rounding rule matters because FS's threshold
+        // is `>= 128` → white; a truncation-driven 127
+        // would have flipped the output pixel.
+        let src = [127_u8, 128, 128, 127];
+        let out = downsample_block_average(&src, 2, 2, 2);
+        assert_eq!(out, vec![128]);
+    }
+
+    #[test]
+    fn factor_2_on_4x4_preserves_shape() {
+        // 4×4 checkerboard (black/white at 2× scale)
+        // averages into a uniform 128 at 2×2. Mirrors
+        // the real case: a 1-pixel-thick black line at
+        // native resolution rasterised at 2× and
+        // averaged back produces edges the FS dithers
+        // predictably.
+        #[rustfmt::skip]
+        let src: [u8; 16] = [
+              0, 255,   0, 255,
+            255,   0, 255,   0,
+              0, 255,   0, 255,
+            255,   0, 255,   0,
+        ];
+        let out = downsample_block_average(&src, 4, 4, 2);
+        // Each 2×2 block: {0, 255, 255, 0} → avg 128.
+        assert_eq!(out, vec![128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn factor_2_preserves_solid_fields() {
+        let src = [255_u8; 16];
+        let out = downsample_block_average(&src, 4, 4, 2);
+        assert_eq!(out, vec![255, 255, 255, 255]);
+        let src = [0_u8; 16];
+        let out = downsample_block_average(&src, 4, 4, 2);
+        assert_eq!(out, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "src_w must be divisible by factor")]
+    fn panics_on_non_divisible_width() {
+        let _ = downsample_block_average(&[0; 9], 3, 3, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "source buffer length")]
+    fn panics_on_length_mismatch() {
+        let _ = downsample_block_average(&[0; 7], 4, 2, 2);
+    }
 }

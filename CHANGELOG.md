@@ -12,6 +12,18 @@ and this project adheres to
 
 ### Fixed
 
+- `render_to_bmp` now rasterises the SVG at 2× target
+  resolution and averages 2×2 blocks to target size
+  before dithering. Sub-pixel accurate coverage values
+  produce a cleaner input for the Floyd–Steinberg
+  stage, measurably reducing residual shimmer on the
+  e-ink panel after the 20/80 pre-threshold snap
+  already landed in this release. Memory cost is 4×
+  pixmap size, CPU cost is ~4× for rasterisation;
+  both comfortably fit inside the 5-minute refresh
+  tick on the RPi. `render_to_png` stays at native
+  resolution so the preview viewer shows the
+  pre-dither raster untouched for debugging.
 - Floyd–Steinberg dither now snaps near-extreme pixels
   (≤ 20% grey → pure black, ≥ 80% grey → pure white)
   to their respective extremes before diffusion runs.

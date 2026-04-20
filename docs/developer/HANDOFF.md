@@ -1,7 +1,7 @@
 # Handoff to the next agent
 
-Current as of 2026-04-20, version **0.20.1** (commit
-`72cef9e`). You are the next agent — read this once
+Current as of 2026-04-20, version **0.21.0** (commit
+`371b437`). You are the next agent — read this once
 end-to-end before touching anything.
 
 ## What's built
@@ -23,6 +23,7 @@ feature versions:
 | 0.19.0 | `cargo xtask preview` + `Renderer::render_to_png` |
 | 0.20.0 | Weather Icons (Erik Flowers, SIL OFL 1.1) replace hand-rolled SVG primitives for the 4 existing conditions |
 | 0.20.1 | Post-commit review fixes: `bellwether::licenses` + `/licenses` endpoint close OFL §2 binary redistribution; `skip_to_svg_root` hardened; pinned SHA-256 per bundled icon; `each_icon_renders_visible_pixels` test replaces the regressed `fill="black"` invariant |
+| 0.21.0 | WMO `weather_code` plumbed end-to-end; two-tier taxonomy (`WmoCode` 28 variants + `ConditionCategory` 9 variants) with `WeatherCode { Wmo, Unrecognised }` at the narrowing boundary; nine Weather Icons SVGs with `icon_for_category` / `icon_for_wmo` dispatch (coarsen fallback); `Condition::to_category` deprecated as temporary bridge |
 
 Every commit goes through `/commit` with red-team +
 artisan reviews; ~130 findings resolved and documented
@@ -76,129 +77,67 @@ swap commit.
 
 ## Recommended next PR sequence
 
-The user approved this plan in conversation. Two-tier
-fidelity, per-widget-instance selector, incremental
-icon design. All four PRs below together replace the
-current 4-variant `Condition` enum with a WMO-backed
-two-tier model. **Each PR is independently mergeable
-and visually verifiable via `cargo xtask preview`.**
+v0.21.0 shipped the first three PRs from the WMO-icon
+plan (weather_code plumbing, two-tier taxonomy,
+nine-icon dispatch). Remaining work splits into two
+phases — PR 4 is the prerequisite structural step, PR
+5+ are incremental icon bundles.
 
-### PR 1 — Plumb raw `weather_code` end-to-end (data only, no visual change)
+### PR 4 — Thread `WeatherCode` through the model + reintroduce `Fidelity`
 
-Append `weather_code` to Open-Meteo's `HOURLY_VARIABLES`
-(currently `crates/bellwether/src/clients/open_meteo/mod.rs:78-79`,
-7 fields, no `weather_code`). Add `weather_code: Vec<Option<u8>>`
-to `WeatherSnapshotBuilder` and `WeatherSnapshot`;
-extend the length-validation tuple at
-`weather/mod.rs:114`; narrow the incoming JSON number
-to `u8` (values outside 0..=99 → `None`, non-integers
-→ `None`).
+The render path currently reads `Condition` off
+`DashboardModel::current` / `days[i]` and bridges it
+through the deprecated `Condition::to_category()` into
+`icon_for_category`. The detailed-icon path
+(`icon_for_wmo`) isn't reachable because the model
+doesn't carry a `WmoCode` / `WeatherCode`. **Fixing
+this unlocks every subsequent PR**, so it's PR 4.
 
-Display layer unchanged in this PR — the existing
-cloud+precip classifier still drives all icons. This
-PR is pure plumbing.
+Scope:
 
-**TDD order:** wiremock test with canned JSON carrying
-`weather_code` → `RawHourly` struct field → `pick_series`
-adapter → accessor + round-trip test. Validate green
-when done.
+1. Add `weather_code: Option<WeatherCode>` to
+   `model::Current` and `model::DayTile`. Populate from
+   `WeatherSnapshot::weather_code()` in the same place
+   the model currently derives `condition`.
+2. Replace `render_weather_icon`'s `Option<Condition>`
+   parameter with `(Option<WeatherCode>, Option<Condition>)`
+   — or better, compute the category up front via
+   `classify_category` and pass that plus the raw
+   `WeatherCode` for detailed dispatch. Delete the
+   `#[allow(deprecated)]` call to
+   `Condition::to_category()` at `svg/mod.rs:591`.
+3. **Reintroduce `Fidelity { Simple, Detailed }` with
+   `#[derive(Default)]` + optional `fidelity` on
+   `WidgetKind::WeatherIcon`** (reverted from the
+   original PR 3 because the renderer had nowhere to
+   consume it — RT-115/AQ-131). The dispatcher now
+   honours it: `Simple` → `icon_for_category(category)`,
+   `Detailed` → `icon_for_wmo(code)` when a
+   `WeatherCode::Wmo(_)` is present, else the category.
+4. Add a renderer test that locks the behavioural
+   difference: same `WeatherCode`, two widget
+   instances, different fidelity → different SVG bytes.
+5. Delete `Condition::to_category` and the
+   `#[allow(deprecated)]` sites once (4) passes —
+   that's the deprecation's exit criterion.
+6. Update the sample model at `dashboard/svg/tests.rs`
+   + `generate_dashboard_sample` to cover every
+   `ConditionCategory` variant and include at least
+   one `fidelity = "detailed"` widget in the preview
+   layout, so `cargo xtask preview` shows both tiers.
 
-### PR 2 — Expand display taxonomy to two tiers
+PR 4 lands visually as a **zero-change-on-current-data
+PR** (coarsen fallback still picks the same 9 icons
+the category path picks) but makes detailed dispatch
+reachable for PR 5+.
 
-Introduce two types in `dashboard/classify.rs`:
+### PR 5+ — Bundle specialized detailed icons (one arm at a time)
 
-- `WmoCode` — exhaustive enum with one variant per
-  WMO 4677 code (~27 variants). `TryFrom<u8>`
-  converts raw code values; out-of-table codes return
-  `None`. Store on `WeatherSnapshot` as
-  `Vec<Option<WmoCode>>` (narrow from `u8` at parse).
-- `ConditionCategory` — 9-variant coarse view:
-  `Clear`, `PartlyCloudy`, `Cloudy`, `Fog`, `Drizzle`,
-  `Rain`, `Snow`, `Thunderstorm`, `Unknown`. Never
-  stored; always computed via
-  `WmoCode::coarsen() -> ConditionCategory`.
-
-Fallback classifier: when `weather_code` is `None`
-(provider gap, older data), call the existing
-cloud+precip logic — but it produces a
-`ConditionCategory` directly, because numeric signals
-aren't precise enough to fabricate a specific WMO
-code. Document this boundary in the module doc.
-
-**Coarsen mapping** (locked in conversation — ship as
-part of PR 2 tests):
-
-| `WmoCode`s | `ConditionCategory` |
-|---|---|
-| Clear | Clear |
-| MainlyClear, PartlyCloudy | PartlyCloudy |
-| Overcast | Cloudy |
-| Fog, RimeFog | Fog |
-| DrizzleLight/Moderate/Dense, FreezingDrizzleLight/Dense | Drizzle |
-| RainSlight/Moderate/Heavy, FreezingRainLight/Heavy, RainShowersSlight/Moderate/Violent | Rain |
-| SnowSlight/Moderate/Heavy, SnowGrains, SnowShowersSlight/Heavy | Snow |
-| Thunderstorm, ThunderstormHailSlight/Heavy | Thunderstorm |
-
-### PR 3 — Per-instance `fidelity` widget setting + icon dispatch
-
-Add `fidelity: Fidelity { Simple, Detailed }` (default
-`Simple`) as an **optional per-widget-instance** field
-in `layout.toml`. The user specifically chose
-per-instance over per-kind — so the same
-`weather-icon` widget can render detailed in the
-today-band and simple in the forecast tiles:
-
-```toml
-{ size = 150, widget = "weather-icon", day = "today",
-  fidelity = "detailed" }
-{ flex = 1,  widget = "weather-icon", day = 0 }
-# ^ defaults to "simple"
-```
-
-Two icon lookup functions with a **graceful fallback**
-so PR 3 is mergeable before any detailed icons exist:
-
-```rust
-pub fn icon_for_category(c: ConditionCategory)
-    -> &'static str;  // 9 icons, mandatory
-
-pub fn icon_for_wmo(code: WmoCode) -> &'static str {
-    match code {
-        // Specialized arms added here in PR 4+:
-        // WmoCode::Fog => FOG,
-        // WmoCode::ThunderstormHailHeavy => HAIL_THUNDER,
-        other => icon_for_category(other.coarsen()),
-    }
-}
-```
-
-Replace the current 4 Weather Icons constants
-(`SUNNY_RAW`/`PARTLY_CLOUDY_RAW`/`CLOUDY_RAW`/`RAIN_RAW`
-in `dashboard/icons.rs`, landed in v0.20.0) with the
-9 category icons from Weather Icons. Each addition
-needs a SHA-256 pin in `PINNED_SHA256`:
-
-| `ConditionCategory` | Weather Icons filename |
-|---|---|
-| Clear | wi-day-sunny.svg |
-| PartlyCloudy | wi-day-cloudy.svg |
-| Cloudy | wi-cloudy.svg |
-| Fog | wi-fog.svg |
-| Drizzle | wi-sprinkle.svg |
-| Rain | wi-rain.svg |
-| Snow | wi-snow.svg |
-| Thunderstorm | wi-thunderstorm.svg |
-| Unknown | wi-na.svg |
-
-Existing `layout.toml` deserializes unchanged (serde
-default). Assert this with a test.
-
-### PR 4+ — Draw/bundle specialized detailed icons (one arm at a time)
-
-Each PR adds one or more `wi-*.svg` files plus the
-matching `icon_for_wmo` arm. Suggested priority order
-(based on visual impact and dither-legibility
-expected):
+Each PR adds one or more `wi-*.svg` files to
+`assets/icons/weather-icons/`, a matching
+`icon_for_wmo` arm in `icons.rs`, and a SHA-256 pin
+in `PINNED_SHA256`. Suggested priority order (visual
+impact + dither-legibility expected):
 
 1. `Fog`, `Thunderstorm`, `ThunderstormHailHeavy` —
    dramatic weather deserves a distinct glyph before
@@ -208,51 +147,60 @@ expected):
 4. Freezing-precipitation variants.
 
 No PR depends on a later one — the `coarsen()`
-fallback ensures every WMO code has a showable icon
-from day one.
+fallback in `icon_for_wmo` ensures every `WmoCode`
+variant has a showable icon from day one, so
+specialised arms are pure additions.
 
 ## Open decisions / caveats for the next agent
 
 1. **Dither verification on physical e-ink still
    pending.** `cargo xtask preview` shows vector,
-   pre-dither PNG, and 1-bit BMP side-by-side, but no
-   one has confirmed the Weather Icons curves look
-   acceptable on actual TRMNL hardware yet. Deploy to
-   `malina` before declaring the icon work fully
-   done; if curves shimmer, Meteocons
-   (https://bas.dev/work/meteocons) is a
-   heavier-fill alternative using the same SVG
+   pre-dither PNG, and 1-bit BMP side-by-side for the
+   nine bundled Weather Icons, but no one has
+   confirmed the curves look acceptable on actual
+   TRMNL hardware yet. Deploy to `malina` before
+   declaring the icon work fully done; if curves
+   shimmer, Meteocons (https://bas.dev/work/meteocons)
+   is a heavier-fill alternative using the same SVG
    integration pattern.
-2. **Coverage impact of the 27-variant `WmoCode` enum.**
-   Exhaustive-match tests over every variant avoid
-   the coverage trap — write one per mapping
-   (`TryFrom<u8>` round-trip, `coarsen()`
-   correctness). The existing
-   `each_icon_covers_every_condition_variant` test at
-   `dashboard/icons.rs` is the pattern to follow.
-3. **Sample model needs fidelity coverage.** The
-   `sample_model()` in `dashboard/svg/tests.rs` + the
-   rich snapshot behind `generate_dashboard_sample`
-   currently exercise 4 conditions. After PR 2,
-   extend to cover every `ConditionCategory`; after
-   PR 3 add a `fidelity = "detailed"` instance in
-   the preview layout so `cargo xtask preview`
-   renders both tiers.
-4. **New Weather Icons additions must pin a
+2. **`classify.rs` is at ~720 lines.** AQ-132 in
+   `artisan-log.md` flags splitting it into
+   `classify/{mod,weather,compass}.rs`. Low-risk
+   mechanical refactor; `Compass8` is unrelated to
+   the weather-state taxonomy and doesn't belong in
+   the same file. A good warm-up task before PR 4 if
+   you want to touch the module without semantic
+   risk.
+3. **New Weather Icons additions must pin a
    SHA-256.** The `bundled_icons_match_pinned_sha256`
    test in `dashboard/icons.rs` enforces the
    "byte-identical to upstream" claim. Any PR adding
    a new `wi-*.svg` file must add its hash to the
    `PINNED_SHA256` table or the build fails. Compute
-   via `sha256sum < the-file`.
-5. **`bellwether::licenses::ALL` must grow with
-   every new bundled asset.** If PR 4+ bundles icons
+   via `sha256sum < the-file`. The `BUNDLED_ICONS`
+   table in the test module is the single source of
+   truth for which files exist — adding a file
+   without updating that table fails the coverage
+   sweep.
+4. **`bellwether::licenses::ALL` must grow with
+   every new bundled asset.** If PR 5+ bundles icons
    from a second upstream source (e.g. Meteocons as
    a fallback set) its license text must be wired
    into the `ALL` registry so `/licenses` surfaces
    it. The `every_bundle_has_a_non_empty_license_entry`
    test catches empty entries but not missing ones —
    you have to remember.
+5. **`WmoCode::ALL` is the single source of truth.**
+   Adding a variant to `WmoCode` requires adding it
+   to `ALL`, to `TryFrom<u8>`'s table, to
+   `coarsen()`'s exhaustive match, and to the
+   `coarsen_follows_handoff_mapping_exhaustively`
+   test's pair table. The compiler catches the first
+   two (exhaustive match on the enum); `ALL.len()`
+   vs the pair table's `len()` assertion catches the
+   fourth. Only the `ALL` step is human memory — a
+   new variant not listed there silently drops from
+   every iteration-based test.
 
 ## User working style
 

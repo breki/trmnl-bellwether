@@ -583,10 +583,9 @@ fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
     let sz = min_dim * ICON_FRACTION / 100;
     let tx = bounds.x + bounds.w.saturating_sub(sz) / 2;
     let ty = bounds.y + bounds.h.saturating_sub(sz) / 2;
-    let icon = icons::strip_xml_prolog(icons::icon_for(condition));
+    let icon = icons::icon_for(condition);
     format!(
-        "<svg x=\"{tx}\" y=\"{ty}\" width=\"{sz}\" height=\"{sz}\">\
-         {icon}</svg>"
+        "<svg x=\"{tx}\" y=\"{ty}\" width=\"{sz}\" height=\"{sz}\">{icon}</svg>"
     )
 }
 

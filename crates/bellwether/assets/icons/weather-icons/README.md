@@ -12,37 +12,72 @@ condition glyphs.
 Downloaded verbatim from
 `https://raw.githubusercontent.com/erikflowers/weather-icons/master/svg/`
 on 2026-04-20. The files are byte-identical to the
-upstream tree — `strip_xml_prolog` in
-`crates/bellwether/src/dashboard/icons.rs` skips the
-`<?xml …?>` declaration and generator comment at read
-time rather than editing the files in place, so
-upstream attribution stays intact.
+upstream tree and remain so — `skip_to_svg_root` in
+`crates/bellwether/src/dashboard/icons.rs` steps past
+the XML prolog + generator comments at read time
+rather than editing the files in place.
+
+Byte-identity is **enforced** by
+`tests::bundled_icons_match_pinned_sha256` in
+`icons.rs`, which compares each file's SHA-256 against
+a pin committed in the test module. Any accidental
+whitespace-normalising hook or hand-edit fails the
+build loudly.
 
 ## License
 
 SIL Open Font License, Version 1.1. Full text in
 [`LICENSE`](LICENSE). The upstream project declares
 OFL 1.1 in its [README][upstream-readme] but does not
-itself ship the license text — this bundle includes
-the canonical text from <https://openfontlicense.org>
-with Erik Flowers' copyright header so the
-SIL OFL §2 "bundled and redistributed" condition is
-met when bellwether itself is redistributed.
+itself ship a signed copyright statement — this bundle
+reproduces the canonical OFL text from
+<https://openfontlicense.org> alongside a softened
+header that acknowledges the upstream gap.
 
 [upstream-readme]: https://github.com/erikflowers/weather-icons#license
 
+Source-distribution §2 compliance is satisfied by this
+`LICENSE` file being distributed next to the SVGs in
+the repository. **Binary-distribution §2 compliance**
+is satisfied by
+[`bellwether::licenses::WEATHER_ICONS_OFL`][licenses]
+and the `/licenses` endpoint on `bellwether-web`,
+which serves the same text via HTTP as a "machine-
+readable metadata field … easily viewed by the user"
+per §2.
+
+[licenses]: ../../../src/licenses.rs
+
+## Modifications (OFL §5 — Reserved Font Name)
+
+Upstream uses the name "Weather Icons" as its primary
+font name. Under OFL §5, **no Modified Version** of
+the Font Software may use the upstream's primary name.
+If you edit any of these SVG files (recolour, add
+strokes, change paths, or repath the `fill` default),
+the resulting file is a Modified Version and the
+"Weather Icons" identifier (including the `id="Layer_1"`
+and any Illustrator metadata that references the name)
+must be dropped or renamed before redistribution.
+
+**Prefer re-downloading from upstream over editing
+in place.** The pinned SHA-256 check in `icons.rs`
+tests exists partly to enforce this — an in-place
+edit fails the build before it reaches a release.
+
 ## Bundled files
 
-| File | WMO coarse category it serves |
-|------|------------------------------|
-| `wi-day-sunny.svg` | Clear |
-| `wi-day-cloudy.svg` | PartlyCloudy |
-| `wi-cloudy.svg` | Cloudy |
-| `wi-rain.svg` | Rain |
+| File | `Condition` it serves |
+|------|----------------------|
+| `wi-day-sunny.svg` | `Sunny` |
+| `wi-day-cloudy.svg` | `PartlyCloudy` |
+| `wi-cloudy.svg` | `Cloudy` |
+| `wi-rain.svg` | `Rain` |
 
 The full two-tier fidelity model (9 category icons
 plus ~15 detailed WMO-specific icons) is sketched in
 `docs/developer/HANDOFF.md` and will land
 incrementally; additions to this directory should
-come from the same upstream `svg/` tree to preserve
-the License condition.
+come from the same upstream `svg/` tree (with a fresh
+SHA-256 pin) to preserve both the license condition
+and the byte-identity claim.

@@ -7,6 +7,59 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Closed review gaps from the Weather Icons swap
+  (v0.20.1)
+
+    Post-commit review of `6a867a8` surfaced 15
+    findings across red-team + artisan reviewers. All
+    15 fixed in this follow-up — largest three were:
+
+    1. **OFL §2 binary-redistribution gap.** The
+       swap commit embedded the SVG bytes via
+       `include_str!` but not the LICENSE text, so
+       every `cargo xtask deploy` push shipped Font
+       Software to `malina` without the accompanying
+       license. New `bellwether::licenses` module
+       embeds both the Weather Icons LICENSE and the
+       Source Sans 3 font README; new
+       `GET /licenses` endpoint on `bellwether-web`
+       serves them as `text/plain` (exempt from the
+       access-token middleware so they stay publicly
+       reachable per §2's "easily viewed by the user"
+       clause).
+    2. **`each_icon_renders_visible_pixels` test
+       regression.** The swap flipped the existing
+       test from `fill="black"` presence (weak but
+       non-trivial "icon will paint something"
+       invariant) to `<svg` + `<path` presence —
+       satisfied by a `<path fill="none">` that would
+       render blank. Replaced with a check that no
+       bundled SVG contains `fill="none"`, combined
+       with the SVG-spec default of black fill.
+    3. **4-for-1 API bundle.** Folded
+       `strip_xml_prolog` into `icon_for` so the
+       latter returns a pre-stripped slice directly.
+       One change resolved: `pub` → private (RT-D +
+       AQ-A), rename to `skip_to_svg_root` (AQ-B),
+       opaque return type (AQ-C), and the footgun of
+       forgetting to pair the two calls.
+
+    Other fixes: harden `skip_to_svg_root` to step
+    past XML PI / comment spans sequentially so a
+    future upstream comment containing `<svg>` can't
+    slice mid-comment; panic loudly on missing root
+    (compile-time constants mean malformed bundled
+    asset = build bug, not runtime); soften the
+    LICENSE header to drop fabricated date range and
+    Reserved Font Name claim; add `<!DOCTYPE` /
+    `<!ENTITY` rejection test for defence-in-depth;
+    add SHA-256 pin test backing the "byte-identical
+    to upstream" README claim (required `sha2 = "0.10"`
+    in `[dev-dependencies]`); add OFL §5 Reserved
+    Font Name warning to the bundled README; fix
+    whitespace leak in `render_weather_icon`'s format
+    string.
+
 - Replaced hand-rolled weather-icon primitives with
   Weather Icons (Erik Flowers) (v0.20.0)
 

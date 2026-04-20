@@ -5,6 +5,43 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-20 (fix — v0.20.1 post-commit review of the Weather Icons swap)
+
+### RT-A — Preview-compiled binary redistributed Font Software without OFL text (§2)
+**Category:** License compliance
+**Description:** `6a867a8` embedded the Weather Icons SVG bytes via `include_str!` into every compiled bellwether binary. The bundled `LICENSE` file lived in the source tree but was **not** embedded or copied by `xtask deploy`, so every push of a stripped release binary to `malina` shipped the Font Software without the accompanying OFL text. The commit message's "closes §2" claim was premature — source-distribution §2 was satisfied; binary-distribution §2 was not.
+**Fix:** Added a new `bellwether::licenses` module (`crates/bellwether/src/licenses.rs`) with `include_str!` of both the Weather Icons LICENSE and the Source Sans 3 font README, plus an `ALL: &[(&str, &str)]` registry. Added a `GET /licenses` route on `bellwether-web` that concatenates every entry as `text/plain`; listed under the landing page's endpoint table; exempt from the access-token middleware so the license text remains publicly accessible per §2's "easily viewed by the user" clause. Test `licenses_endpoint_serves_plaintext_ofl` locks the route's status, content-type, and body contents against silent regressions.
+
+### RT-B — `skip_to_svg_root` greedy first-match was landmine for future upstream refreshes
+**Category:** Correctness / robustness
+**Description:** The original helper did `svg.find("<svg")` and sliced — fine for the current four files, but a future upstream refresh whose generator comment contained the literal `<svg>` (e.g. `<!-- exported from <svg> tools -->`) would slice mid-comment, producing output that starts with a valid-looking `<svg` but is actually truncated XML. The tests asserting `.starts_with("<svg")` would still pass.
+**Fix:** Rewrote `skip_to_svg_root` (renamed from `strip_xml_prolog`) to consume PI (`<?…?>`) and comment (`<!--…-->`) spans sequentially from the document start, then assert the next non-whitespace is the root `<svg`. New test `skip_to_svg_root_ignores_svg_inside_comments` locks the behaviour against the failure mode. `crates/bellwether/src/dashboard/icons.rs`.
+
+### RT-C — `skip_to_svg_root` silently passed through inputs missing the root element
+**Category:** Correctness / fail-loudly
+**Description:** The original `strip_xml_prolog` returned the input unchanged when `<svg` was absent, producing a runtime `RenderError::ParseSvg` for what is fundamentally a build-time bug (the `include_str!` inputs are compile-time constants — malformed ones are build errors, not runtime ones).
+**Fix:** Helper now panics with an explicit message if no `<svg` root is reached. Test `skip_to_svg_root_panics_on_missing_root` locks the panic-path via `#[should_panic(expected = "missing its <svg> root")]`. `crates/bellwether/src/dashboard/icons.rs`.
+
+### RT-D — `strip_xml_prolog` was `pub` but only used in-crate (self-review flagged but shipped)
+**Category:** API surface
+**Description:** `6a867a8`'s commit message acknowledged the self-review flagged this ("could be pub(super) not pub"), but shipped anyway. An internal helper leaking into the `bellwether` library's public rustdoc surface would become a SemVer break if its semantics ever changed (see RT-B).
+**Fix:** Subsumed by artisan AQ-C: the strip is now folded into `icon_for`, which returns a pre-stripped slice directly. The helper is now private (`fn`, not `pub fn`) and cannot be reached from outside the module. `crates/bellwether/src/dashboard/icons.rs`.
+
+### RT-E — Self-authored LICENSE header made OFL claims without upstream backing
+**Category:** License compliance / legal accuracy
+**Description:** The initial header asserted `Copyright (c) 2013-2015, Erik Flowers … Reserved Font Name "Weather Icons"`. Upstream doesn't ship a signed copyright statement, so both the date range (upstream has commits through 2018+) and the Reserved Font Name declaration were made locally on Erik Flowers' behalf without his written consent. Declaring a Reserved Font Name triggers OFL §3 — a legal promise bellwether can't make for someone else.
+**Fix:** Rewrote the header to "The upstream project's README declares this work to be licensed under SIL OFL 1.1, but does not itself ship a signed copyright statement or an explicit Reserved Font Name declaration. The full license text below is reproduced verbatim from `openfontlicense.org`." No fabricated date range, no Reserved Font Name claim. Matching README now tells future contributors what to do if they edit the SVGs (AQ-H). `crates/bellwether/assets/icons/weather-icons/LICENSE`.
+
+### RT-F — `skip_to_svg_root` didn't reject DOCTYPE / ENTITY declarations
+**Category:** Security (latent) / defence-in-depth
+**Description:** The current four bundled files have no `<!DOCTYPE>` or `<!ENTITY>` declarations, but the README's "additions should come from the same upstream `svg/` tree" workflow would hit a problem if a malicious-mirror download ever carried an entity bomb. `roxmltree` mitigates external-entity attacks but internal-entity expansion depends on its limits.
+**Fix:** Added `bundled_icons_contain_no_doctype_or_entity_declarations` unit test asserting no `<!DOCTYPE` or `<!ENTITY` substring appears in any bundled icon's raw bytes. Any future addition to `assets/icons/weather-icons/` that carries a DTD or entity declaration fails the build before reaching a release. `crates/bellwether/src/dashboard/icons.rs`.
+
+### RT-G — "Byte-identical to upstream" claim was asserted but not enforced
+**Category:** Supply-chain integrity
+**Description:** The bundled README declared the SVGs "byte-identical to the upstream tree". Nothing — no build.rs, no test, no CI step — actually enforced it. A whitespace-normalising pre-commit hook or a maintainer "fixing" the Adobe Illustrator-ism in one of the files would silently falsify the claim. The claim is load-bearing for the license argument ("verbatim upstream, so OFL Modified-Version clauses don't apply").
+**Fix:** New `bundled_icons_match_pinned_sha256` test hashes each bundled SVG via `sha2::Sha256` and compares against a 64-char hex string pinned in the test module. Added `sha2 = "0.10"` to `crates/bellwether/Cargo.toml`'s `[dev-dependencies]`. Regeneration instructions (`sha256sum < the-file` after an intentional refresh) are in the test's docstring. `crates/bellwether/src/dashboard/icons.rs`, `crates/bellwether/Cargo.toml`.
+
 ## 2026-04-20 (feat — v0.19.0 xtask preview + pre-dither PNG render)
 
 ### RT-A — Preview server exposed the entire workspace `target/` directory

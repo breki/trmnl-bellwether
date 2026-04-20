@@ -6,6 +6,48 @@ findings.
 
 ---
 
+## 2026-04-20 (fix — v0.20.1 post-commit review of the Weather Icons swap)
+
+### AQ-A — `strip_xml_prolog` visibility was too open
+**Category:** API surface / encapsulation
+**Description:** `6a867a8` declared `pub fn strip_xml_prolog` but the only caller was in the same crate. `pub` on a library crate item means the function becomes part of the `bellwether` library's rustdoc-stable surface; any future semantic change becomes a SemVer break. The commit's own self-review flagged this but shipped anyway. Red-team duplicated this as RT-D.
+**Fix:** Subsumed by AQ-C (the bundle fix): the helper is now private, reachable only through `icon_for`. `crates/bellwether/src/dashboard/icons.rs`.
+
+### AQ-B — `strip_xml_prolog` was misnamed
+**Category:** Naming / contract honesty
+**Description:** Doc promised "strips the XML prolog and any leading comments"; implementation was `svg.find("<svg")` which skips *anything* before the first `<svg` tag. A future reader adding a second caller would be surprised the helper also swallows their DOCTYPE / malformed prefix — or defensively write a second helper doing the same job.
+**Fix:** Renamed to `skip_to_svg_root`. Doc now reads "Return the slice starting at the root `<svg>` element, stepping past any XML processing instructions (`<?…?>`) and comments (`<!--…-->`) that precede it." Matches actual behaviour. `crates/bellwether/src/dashboard/icons.rs`.
+
+### AQ-C — `icon_for` return type was semantically opaque (the bundle fix)
+**Category:** API design / contract-carried-in-type
+**Description:** `6a867a8`'s `icon_for` returned a bare `&'static str` whose "full SVG document with own `viewBox`; must be sliced through `strip_xml_prolog` before embedding" contract lived only in convention. The caller at `svg/mod.rs:586` had to remember to call `strip_xml_prolog`; omitting it would produce invalid nested XML that `usvg` may or may not tolerate. The type system wasn't helping.
+**Fix:** Folded the strip into `icon_for` itself — the function now returns the pre-stripped slice ready for direct embedding. The call site in `render_weather_icon` collapsed from two calls to one. This single change simultaneously resolved four findings (AQ-A, AQ-B, AQ-C, RT-D): the helper is now private, correctly named, and the return type carries the "ready-to-embed" contract implicitly because nothing else is exposed. `crates/bellwether/src/dashboard/icons.rs`, `crates/bellwether/src/dashboard/svg/mod.rs`.
+
+### AQ-D — `each_icon_covers_every_condition_variant` test weakened the original invariant
+**Category:** Test invariant preservation
+**Description:** The pre-swap test asserted `fill="black"` presence, which was a weak but non-trivial "icon will paint something" invariant. The post-swap version only checked `<svg` + `<path` presence — satisfied by a `<path fill="none">` that would render blank on the e-ink display. Given `6a867a8`'s motivation ("icons hard to distinguish"), silently-blank icons would regress the same user problem without the test catching it. This was the highest-priority finding from the review.
+**Fix:** Added `each_icon_renders_visible_pixels` test that asserts no bundled SVG contains `fill="none"` (which, combined with the SVG-spec default of black fill, guarantees a visible raster). Kept `each_icon_covers_every_condition_variant` for exhaustive-match coverage. `crates/bellwether/src/dashboard/icons.rs`.
+
+### AQ-E — Module doc hardcoded a brittle `viewBox="0 0 30 30"` reference
+**Category:** Doc accuracy / brittleness
+**Description:** The module-level doc cited `viewBox="0 0 30 30"` as if all icons used that coordinate system — fine for the current bundle but a future detailed-icon addition from a different Weather Icons subset (or a switch to Meteocons if dither verification on physical e-ink fails) could carry a different viewBox and make the doc lie.
+**Fix:** Softened the module doc to "Each file declares its own `viewBox`" without citing specific values. `crates/bellwether/src/dashboard/icons.rs`.
+
+### AQ-F — Default-black-fill invariant asserted in doc but not enforced
+**Category:** Doc/code agreement
+**Description:** The module doc claimed "paths default to `fill: black` per the SVG spec when no fill is specified" — true per the spec, but the pre-fix test didn't verify it, so an upstream refresh introducing a `fill="none"` path would silently violate the asserted invariant.
+**Fix:** Subsumed by AQ-D's `each_icon_renders_visible_pixels` test, which enforces the invariant at test time. Module doc now cross-references the test by name so the two stay in sync.
+
+### AQ-G — `render_weather_icon` format string leaked five indent-spaces into the output
+**Category:** Output cleanliness / subtle bug
+**Description:** The `format!` used a `\`-line-continuation with the continuation line indented five spaces. Rust preserves the interior string content including the leading spaces, so every rendered icon produced `<svg …>     <svg…>` — five stray spaces between the outer wrapper and the inner SVG. SVG ignores inter-element whitespace during parsing so it's not a rendering bug, but it's measurable output bloat and a subtle trap for the next re-flow.
+**Fix:** Collapsed the `format!` to a single line. The 80-col rustfmt convention is violated for this one literal, which rustfmt accepts. `crates/bellwether/src/dashboard/svg/mod.rs:render_weather_icon`.
+
+### AQ-H — Bundled README missing OFL §5 "Reserved Font Name" note for future editors
+**Category:** Documentation completeness
+**Description:** The README discussed OFL §2 compliance but not §5 — the clause that says "No Modified Version of the Font Software may use the Reserved Font Name(s) unless explicit written permission is granted by the corresponding Copyright Holder." A future contributor recolouring or re-stroking one of the SVGs in place would silently become a Modified Version violating §5 via the `id="Layer_1"` reference + the filename.
+**Fix:** Added a dedicated "Modifications (OFL §5 — Reserved Font Name)" section explicitly instructing future maintainers to prefer re-downloading over in-place editing, and noting the pinned SHA-256 check (AQ-G / RT-G) exists partly to enforce this. `crates/bellwether/assets/icons/weather-icons/README.md`.
+
 ## 2026-04-20 (feat — v0.19.0 xtask preview + pre-dither PNG render)
 
 ### AQ-A — `RenderError::EncodePng(String)` docstring justified by a false parallel

@@ -45,6 +45,18 @@ and this project adheres to
   no-store`). Backs the landing-page preview
   `<img>`.
 
+### Added
+
+- `GET /licenses` endpoint on `bellwether-web` serves
+  every bundled third-party license text (Weather
+  Icons OFL, Source Sans 3 font README) as
+  `text/plain`. Exempt from the access-token
+  middleware so SIL OFL 1.1 §2 compliance holds for
+  binary-only redistribution: a deployed bellwether
+  instance can redistribute the bundled Font Software
+  bytes because the accompanying license text is
+  served by the same binary.
+
 ### Fixed
 
 - Landing-page dashboard preview now actually
@@ -53,6 +65,12 @@ and this project adheres to
   manifest (and 401s when an access token is
   configured), so the preview always fell through
   to the "no image yet" fallback.
+- Post-commit review of the Weather Icons swap
+  closed 15 findings: silent-stale-icon test gap
+  (`fill="none"` blind spot), landmine in
+  `strip_xml_prolog`'s greedy `<svg` search, and
+  the OFL §2 binary-redistribution gap that the
+  initial swap commit overstated.
 
 ### Changed
 

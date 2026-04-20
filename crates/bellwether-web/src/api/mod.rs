@@ -24,6 +24,7 @@ pub fn create_router(trmnl: TrmnlState) -> Router {
         .route("/", get(landing_page))
         .route("/health", get(health))
         .route("/api/status", get(status))
+        .route("/licenses", get(licenses))
         .merge(trmnl::router(trmnl))
         .layer(TraceLayer::new_for_http())
 }
@@ -49,6 +50,25 @@ async fn status() -> Json<StatusResponse> {
         status: "ready",
         version: bellwether::version().into(),
     })
+}
+
+/// Serve every bundled third-party license text as a
+/// single `text/plain` document. Each block is
+/// separated by a header line plus a rule so a human
+/// reader can navigate them quickly. Binary-only
+/// redistribution of the bellwether executable
+/// satisfies SIL OFL 1.1 §2 via this endpoint.
+#[allow(clippy::unused_async)]
+async fn licenses() -> ([(&'static str, &'static str); 1], String) {
+    let mut body = String::new();
+    for (label, text) in bellwether::licenses::ALL {
+        body.push_str("=====================================\n");
+        body.push_str(label);
+        body.push_str("\n=====================================\n\n");
+        body.push_str(text);
+        body.push_str("\n\n");
+    }
+    ([("content-type", "text/plain; charset=utf-8")], body)
 }
 
 /// Landing page: a minimal self-describing HTML page
@@ -114,6 +134,11 @@ async fn landing_page() -> Html<String> {
 <tr><td><code>GET /preview.bmp</code></td>\n\
     <td>Latest rendered BMP (used by the preview \
         below).</td></tr>\n\
+<tr><td><code>GET /licenses</code></td>\n\
+    <td>Bundled third-party license texts (Weather \
+        Icons, Source Sans 3) served as \
+        <code>text/plain</code> for SIL OFL \u{00a7}2 \
+        compliance.</td></tr>\n\
 </table>\n\
 \n\
 <h2>Latest rendered dashboard</h2>\n\
@@ -192,6 +217,54 @@ mod tests {
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["status"], "ready");
         assert!(!json["version"].as_str().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn licenses_endpoint_serves_plaintext_ofl() {
+        // SIL OFL §2 compliance for binary
+        // redistribution: the bundled Font Software
+        // bytes (Weather Icons SVGs, Source Sans 3
+        // TTF) travel inside the compiled executable
+        // to the RPi via `cargo xtask deploy`. This
+        // endpoint is the "machine-readable metadata
+        // field … easily viewed by the user" clause
+        // of §2. If the route ever 404s, gets gated
+        // behind an access token, or starts returning
+        // HTML instead of plain text, binary-only
+        // redistribution becomes non-compliant.
+        let app = test_router();
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/licenses")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        assert!(
+            content_type.starts_with("text/plain"),
+            "content-type was {content_type:?}"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            text.contains("SIL OPEN FONT LICENSE"),
+            "response body does not contain OFL header"
+        );
+        assert!(
+            text.contains("Weather Icons"),
+            "response body does not label the Weather Icons bundle"
+        );
     }
 
     #[tokio::test]

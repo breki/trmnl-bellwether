@@ -10,6 +10,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- Floyd–Steinberg dither now snaps near-extreme pixels
+  (≤ 20% grey → pure black, ≥ 80% grey → pure white)
+  to their respective extremes before diffusion runs.
+  Previously, anti-aliased edge pixels from `resvg`'s
+  rasterizer fed thousands of tiny errors into the
+  diffusion pattern, stacking into a visible shimmer
+  along every glyph and icon curve on the e-ink panel.
+  Edges now render crisp; genuine midtones still dither
+  normally for any future icon with gradient content.
+- `cargo xtask deploy` now syncs `deploy/bellwether-web.service`
+  to `/etc/systemd/system/bellwether-web.service` on
+  the RPi when the two differ (and only then). A
+  latent v0.16.0 regression — where the unit file on
+  `malina` still referenced the long-removed
+  `--frontend` CLI flag — would otherwise crash-loop
+  the service on the next deploy whose binary noticed.
+
 ### Added
 
 - `wi-hail.svg` (Weather Icons by Erik Flowers) bundled

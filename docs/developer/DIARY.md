@@ -7,6 +7,38 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Killed edge-shimmer on the e-ink panel with a
+  pre-threshold snap in the Floyd–Steinberg dither
+  (v0.23.1)
+
+    Hardware verification on `malina` showed visible
+    shimmer on both text and icon curves. Root cause
+    was the AA edges from `resvg`'s rasterizer —
+    thousands of ~90%-grey pixels at every glyph border
+    were each pushing small errors into the FS
+    diffusion, and the resulting pattern stacked into a
+    perceptible buzzing texture across the panel.
+
+    Fix: before the diffusion loop, snap any pixel with
+    value ≤ `SNAP_BLACK_AT` (51 = 20% grey) to 0, and
+    any pixel ≥ `SNAP_WHITE_AT` (204 = 80% grey) to 255.
+    The dashboard's source material is pure
+    black-on-white (Weather Icons SVG paths + Source
+    Sans 3 glyphs), so sub-extreme greys are by
+    definition AA noise, not intentional content.
+    Snapping them contributes zero error to the FS
+    loop; only genuine midtones (if any future icon
+    ships one) still dither.
+
+    Also fixed a latent v0.16.0 deploy regression:
+    `cargo xtask deploy` didn't sync the systemd unit
+    file, so the stale `--frontend` CLI flag on
+    `malina`'s installed unit crash-looped the service
+    on the first post-v0.16.0 deploy that actually
+    noticed. `install()` now runs `sync_service_unit`
+    which ships the unit file only when it differs from
+    what's installed, then `daemon-reload`s.
+
 - Bundled `wi-hail.svg` as the first specialised
   detailed-fidelity glyph (v0.23.0)
 

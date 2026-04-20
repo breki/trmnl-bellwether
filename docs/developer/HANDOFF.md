@@ -69,22 +69,6 @@ shimmer, staircase aliasing on diagonals is within
 glance-distance tolerance. The Weather Icons choice
 is validated — no need to fall back to Meteocons.
 
-## Working-tree scratch (not part of any commit)
-
-The following untracked paths were created during
-the 2026-04-20 icon exploration and should either be
-deleted or gitignored:
-
-- `dashboard-weather-icons.png`,
-  `preview-dashboard-vector.png`,
-  `xtask-preview-three-panel.png` — Playwright
-  screenshots from the icon exploration.
-- `.playwright-mcp/` — Playwright MCP runtime cache.
-
-None of these are load-bearing; they're just visual
-evidence of the exploration that predates the icon
-swap commit.
-
 ## Recommended next PR sequence
 
 PR 4 (model + Fidelity) landed in v0.22.0. PR 5

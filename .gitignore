@@ -46,6 +46,14 @@ ha_token.txt
 /test-results/
 /playwright-report/
 /playwright/.cache/
+/.playwright-mcp/
+
+# Session scratch — Playwright screenshots and other
+# preview PNGs dropped at the repo root during
+# exploration. Committed images live under docs/.
+/dashboard-weather-icons.png
+/preview-dashboard-vector.png
+/xtask-preview-three-panel.png
 
 # E2E test data (copied from fixtures at runtime)
 /test-data/

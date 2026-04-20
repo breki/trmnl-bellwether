@@ -7,39 +7,6 @@ reverse chronological order.
 
 ### 2026-04-20
 
-- Added 2× supersample pass to the BMP render pipeline
-  (v0.23.2)
-
-    v0.23.1's pre-threshold snap reduced but didn't
-    eliminate the shimmer on hardware. The residual was
-    from edge pixels landing in the 20–80% band that
-    the snap deliberately left alone (to preserve FS
-    for any future midtone content). Supersampling is
-    the orthogonal fix: by rasterising at 1600×960 and
-    averaging 2×2 blocks back to 800×480, every output
-    pixel's grey value is the mean of four subsamples,
-    which produces much more consistent and less
-    noisy greys at every glyph and icon edge than
-    single-sample AA at native resolution.
-
-    `render_to_bmp` now runs `rasterize_at` at
-    `SUPERSAMPLE_FACTOR × (w, h)`, then
-    `downsample_block_average` back to `(w, h)` before
-    feeding into FS. `rasterize` still delegates to
-    `rasterize_at` at native dimensions so the PNG
-    path stays untouched — the preview viewer shows
-    the pre-dither raster at its true resolution for
-    layout debugging.
-
-    Memory cost on 800×480: 1600×960×4 bytes = ~6 MB
-    temporary pixmap, well within the 256 MB service
-    limit on malina. CPU cost is roughly 4× for the
-    rasterisation step (the dither itself still runs
-    at native resolution); published render times on
-    the Pi were in the ~50 ms range before, expected
-    ~200 ms after, still a rounding error on the
-    5-minute refresh tick.
-
 - Killed edge-shimmer on the e-ink panel with a
   pre-threshold snap in the Floyd–Steinberg dither
   (v0.23.1)

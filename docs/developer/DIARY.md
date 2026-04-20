@@ -7,6 +7,58 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Plumbed WMO `weather_code` end-to-end with a
+  9-variant coarse display taxonomy (v0.21.0)
+
+    Three logical PRs bundled into one commit per the
+    PR sequence sketched in HANDOFF.md:
+
+    1. **PR 1 — `weather_code` plumbing.** Open-Meteo's
+       `weather_code` hourly field is now in
+       `WeatherSnapshot`, narrowed at the adapter
+       boundary so non-integer / out-of-byte-range
+       values become `None` (wire noise) and in-byte
+       codes outside the WMO 4677 subset are preserved
+       distinctly — see PR 2 for why.
+    2. **PR 2 — Two-tier taxonomy.** New
+       `WmoCode` enum (28 variants, `#[repr(u8)]`) +
+       `TryFrom<u8>` + `coarsen() -> ConditionCategory`
+       (9 variants) + `From<WmoCode> for u8`. New
+       `WeatherCode { Wmo(_), Unrecognised(u8) }` at
+       the boundary preserves the distinction between
+       "provider sent nothing" and "provider sent a
+       code we don't recognise", so the composite
+       `classify_category` can surface
+       `ConditionCategory::Unknown` for the latter
+       rather than collapsing both cases into the
+       cloud+precip fallback. `WmoCode::ALL` is the
+       single source of truth for "documented
+       variants", consumed by both classify tests and
+       icon tests. `Condition::to_category` marked
+       `#[deprecated]` as a temporary bridge.
+    3. **PR 3 — Nine-icon dispatch.** Bundled five new
+       Weather Icons SVGs (`wi-fog`, `wi-sprinkle`,
+       `wi-snow`, `wi-thunderstorm`, `wi-na`) verbatim
+       from upstream with SHA-256 pins. New
+       `icon_for_category(ConditionCategory)` covers
+       the mandatory 9 categories; `icon_for_wmo`
+       dispatches through `coarsen` with specialised
+       arms landing in PR 4+. The existing render
+       path routes `Condition` → `ConditionCategory`
+       via the deprecated bridge, exercising the new
+       dispatch with current data without touching the
+       model.
+
+    Two structural review findings (unreachable
+    `Unknown` variant + silently-ignored `Fidelity`
+    field) surfaced by both reviewers resolved
+    in-PR: the former by plumbing
+    `WeatherCode::Unrecognised` through the boundary
+    so `Unknown` becomes reachable; the latter by
+    removing `Fidelity` entirely from this PR so PR 4
+    can reintroduce it coupled to the renderer
+    change.
+
 - Closed review gaps from the Weather Icons swap
   (v0.20.1)
 

@@ -6,6 +6,40 @@ findings.
 
 ---
 
+## 2026-04-20 (feat — v0.21.0 weather_code plumbing + WMO taxonomy + 9-icon dispatch)
+
+### AQ-127 — `ConditionCategory::Unknown` was unreachable from the codebase
+**Category:** Correctness / dead code
+**Description:** Duplicated by red team as RT-114. `classify_category` either called `WmoCode::coarsen` (never returns `Unknown`) or fell through to `classify_weather(...).to_category()` (image = `{Clear, PartlyCloudy, Cloudy, Rain}`). Out-of-subset codes collapsed to `None` at the Open-Meteo boundary and re-entered the classifier as `None`, taking the fallback path. The `fallback_cannot_produce_detailed_categories` test explicitly locked `Unknown` *out* of the fallback. So `wi-na.svg`, `UNKNOWN_RAW`, the `ConditionCategory::Unknown => UNKNOWN_RAW` arm in `icons.rs`, and its SHA-256 pin all existed to satisfy exhaustiveness on a variant no runtime input could construct.
+**Fix:** See RT-114. Introduced `WeatherCode { Wmo(WmoCode), Unrecognised(u8) }` at the narrowing boundary; `classify_category` now emits `ConditionCategory::Unknown` for `Some(Unrecognised(_))`. `wi-na.svg` and its `UNKNOWN_RAW` icon arm are now reachable for real provider drift. `crates/bellwether/src/dashboard/classify.rs`, `crates/bellwether/src/clients/open_meteo/mod.rs`, `crates/bellwether/src/weather/mod.rs`.
+
+### AQ-128 — `TryFrom<u8> for WmoCode` used `type Error = ()`
+**Category:** Error handling
+**Description:** The error type carried no information and implemented neither `std::error::Error` nor a useful `Display`. Any caller wanting to propagate the failure into a log, an `anyhow` chain, or a debug repr got nothing to report. The actionable detail — the rejected byte — was thrown away. `crates/bellwether/src/dashboard/classify.rs`.
+**Fix:** Added `pub struct UnknownWmoCode(pub u8)` with `#[derive(thiserror::Error)] #[error("unrecognised WMO 4677 code: {0}")]`; shifted `TryFrom::Error` to it. The boundary helper in `open_meteo/mod.rs` uses the error's payload to build `WeatherCode::Unrecognised(byte)` — the fix is load-bearing for AQ-127/RT-114, not cosmetic. Classify test `wmo_try_from_rejects_codes_outside_the_table_with_payload` locks the error payload and the Display format.
+
+### AQ-129 — `WmoCode::as_u8` was redundant with `#[repr(u8)]` and missed the `From` idiom
+**Category:** API design
+**Description:** `WmoCode::as_u8(self) -> u8 { self as u8 }` just wrapped the repr cast. The docstring's claim about "tightening the repr" was backwards — `#[repr(u8)]` is precisely what *guarantees* `self as u8` is sound. The idiomatic pairing with `TryFrom<u8>` is `From<WmoCode> for u8`, which also participates in generic code (`Into`, `.into()`, conversions-generic APIs). `crates/bellwether/src/dashboard/classify.rs`.
+**Fix:** Removed `WmoCode::as_u8`, added `impl From<WmoCode> for u8 { fn from(code: WmoCode) -> Self { code as Self } }`. Classify test `wmo_all_list_matches_try_from_round_trip` now uses `u8::from(code)`; the cast survives in exactly one place.
+
+### AQ-130 — `Condition::to_category` bridge had no deprecation signal
+**Category:** API design
+**Description:** The doc said "temporary bridge while callers are being migrated" but nothing machine-checkable forced the cleanup. Two parallel weather taxonomies sat in the public API simultaneously with nothing pushing consolidation; a future contributor couldn't tell which was the intended go-forward path. `crates/bellwether/src/dashboard/classify.rs`.
+**Fix:** Added `#[deprecated(note = "temporary bridge during the Condition → ConditionCategory migration; remove once the render path consumes ConditionCategory directly (HANDOFF PR 4+)")]` to `Condition::to_category`. Added `#[allow(deprecated)]` at the single caller in `svg/mod.rs` (render_weather_icon, line 591) and in `classify_category`'s own fallback branch, plus the bridge test. The deprecation warning now fires loudly at the exact migration point PR 4+ will remove.
+
+### AQ-131 — `Fidelity` field silently ignored in the renderer
+**Category:** API design / correctness
+**Description:** Duplicated by red team as RT-115. See RT-115 for full description.
+**Fix:** See RT-115. Removed the `Fidelity` enum and the `WidgetKind::WeatherIcon::fidelity` field from this PR entirely; PR 4 will reintroduce them coupled to renderer support. `crates/bellwether/src/dashboard/layout/mod.rs`, `crates/bellwether/src/dashboard/svg/mod.rs`, `crates/bellwether/src/dashboard/layout/tests.rs`.
+
+### AQ-133 — `WMO_CODE_NUMBERS` duplicated across `classify.rs` tests and `icons.rs` tests
+**Category:** Test coverage
+**Description:** Two hand-maintained 28-element `u8` arrays listing the same WMO subset lived in `classify.rs:537` and `icons.rs:296`. The icons-test comment claimed the duplication was intentional as a forcing function, but the icons test just looped over the numbers — adding a new `WmoCode` variant *didn't* fail the icons test silently, defeating the claim. The real forcing functions (`coarsen`'s exhaustive match, the `WmoCode::try_from` table) were elsewhere.
+**Fix:** Added `pub const WmoCode::ALL: &'static [Self]` listing every variant. Both classify tests (`wmo_all_list_matches_try_from_round_trip`) and icons tests (`icon_for_wmo_is_total_over_every_documented_code`) now iterate `WmoCode::ALL`, so "add a new variant" is a single-location edit and the two test paths can never drift. The classify coarsen table still asserts `pairs.len() == WmoCode::ALL.len()` so a new variant with no coarsen mapping still fails the test loudly.
+
+---
+
 ## 2026-04-20 (fix — v0.20.1 post-commit review of the Weather Icons swap)
 
 ### AQ-A — `strip_xml_prolog` visibility was too open

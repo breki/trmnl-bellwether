@@ -17,12 +17,27 @@
 //! can't silently produce a blank icon on the 1-bit
 //! Floyd–Steinberg-dithered e-ink output.
 //!
+//! ## Two-tier dispatch
+//!
+//! The module exposes two public entry points; callers
+//! pick the one that matches the signal they hold:
+//!
+//! - [`icon_for_category`] — mandatory nine-way
+//!   dispatch keyed by [`ConditionCategory`]. Always
+//!   produces a non-empty SVG. The safe fallback path.
+//! - [`icon_for_wmo`] — detailed dispatch keyed by
+//!   [`WmoCode`]. Specialized arms land one-per-PR
+//!   (see HANDOFF PR 4+); every unspecialized variant
+//!   routes through [`WmoCode::coarsen`] →
+//!   [`icon_for_category`], so the function is total
+//!   from day one.
+//!
 //! [tests]: tests::each_icon_renders_visible_pixels
 
-use super::classify::Condition;
+use super::classify::{ConditionCategory, WmoCode};
 
 /// Upstream Weather Icons `wi-day-sunny`.
-const SUNNY_RAW: &str =
+const CLEAR_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-day-sunny.svg");
 
 /// Upstream Weather Icons `wi-day-cloudy`.
@@ -33,29 +48,78 @@ const PARTLY_CLOUDY_RAW: &str =
 const CLOUDY_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-cloudy.svg");
 
+/// Upstream Weather Icons `wi-fog`.
+const FOG_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-fog.svg");
+
+/// Upstream Weather Icons `wi-sprinkle` — the drizzle
+/// glyph (distinct droplets, sparser than rain).
+const DRIZZLE_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-sprinkle.svg");
+
 /// Upstream Weather Icons `wi-rain`.
 const RAIN_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-rain.svg");
 
-/// Return the SVG fragment for a given [`Condition`],
-/// already trimmed past the XML prolog and any
-/// generator comments so the caller can embed it
-/// directly inside a wrapping `<svg>` element without
-/// producing invalid XML.
+/// Upstream Weather Icons `wi-snow`.
+const SNOW_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-snow.svg");
+
+/// Upstream Weather Icons `wi-thunderstorm`.
+const THUNDERSTORM_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-thunderstorm.svg");
+
+/// Upstream Weather Icons `wi-na` — "not available"
+/// glyph used for [`ConditionCategory::Unknown`] when
+/// the provider returned a WMO code outside the
+/// documented subset.
+const UNKNOWN_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-na.svg");
+
+/// Return the SVG fragment for a given
+/// [`ConditionCategory`], already trimmed past the XML
+/// prolog and any generator comments so the caller can
+/// embed it directly inside a wrapping `<svg>` element
+/// without producing invalid XML.
 ///
 /// Panics only via [`skip_to_svg_root`]'s invariants,
 /// and only on malformed bundled assets — not on user
 /// input — so the production render path is
 /// infallible.
 #[must_use]
-pub fn icon_for(condition: Condition) -> &'static str {
-    let raw = match condition {
-        Condition::Sunny => SUNNY_RAW,
-        Condition::PartlyCloudy => PARTLY_CLOUDY_RAW,
-        Condition::Cloudy => CLOUDY_RAW,
-        Condition::Rain => RAIN_RAW,
+pub fn icon_for_category(category: ConditionCategory) -> &'static str {
+    let raw = match category {
+        ConditionCategory::Clear => CLEAR_RAW,
+        ConditionCategory::PartlyCloudy => PARTLY_CLOUDY_RAW,
+        ConditionCategory::Cloudy => CLOUDY_RAW,
+        ConditionCategory::Fog => FOG_RAW,
+        ConditionCategory::Drizzle => DRIZZLE_RAW,
+        ConditionCategory::Rain => RAIN_RAW,
+        ConditionCategory::Snow => SNOW_RAW,
+        ConditionCategory::Thunderstorm => THUNDERSTORM_RAW,
+        ConditionCategory::Unknown => UNKNOWN_RAW,
     };
     skip_to_svg_root(raw)
+}
+
+/// Return the SVG fragment for a given [`WmoCode`],
+/// preferring a specialized glyph when one is bundled
+/// and falling back to the coarse
+/// [`icon_for_category`] otherwise.
+///
+/// Detailed arms are added here incrementally (see
+/// HANDOFF PR 4+). Every new arm must also add its
+/// source SVG file, register a SHA-256 pin in
+/// [`tests::PINNED_SHA256`], and wire the file into
+/// `assets/icons/weather-icons/README.md` so the
+/// byte-identity contract stays visible.
+#[must_use]
+pub fn icon_for_wmo(code: WmoCode) -> &'static str {
+    // Specialized arms go here in PR 4+. Until then
+    // every code routes through its coarsened category,
+    // so the function is total without any per-variant
+    // match arms.
+    icon_for_category(code.coarsen())
 }
 
 /// Return the slice starting at the root `<svg>`
@@ -100,6 +164,24 @@ fn skip_to_svg_root(svg: &'static str) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Every bundled icon file, in `(filename, bytes)`
+    /// form. Single source of truth for the tests that
+    /// iterate the whole bundle (byte-identity, no-XXE,
+    /// no-fill-none). Adding a new icon here without a
+    /// pin or a category mapping fails a sibling test
+    /// loudly — that's the point.
+    const BUNDLED_ICONS: &[(&str, &str)] = &[
+        ("wi-day-sunny.svg", CLEAR_RAW),
+        ("wi-day-cloudy.svg", PARTLY_CLOUDY_RAW),
+        ("wi-cloudy.svg", CLOUDY_RAW),
+        ("wi-fog.svg", FOG_RAW),
+        ("wi-sprinkle.svg", DRIZZLE_RAW),
+        ("wi-rain.svg", RAIN_RAW),
+        ("wi-snow.svg", SNOW_RAW),
+        ("wi-thunderstorm.svg", THUNDERSTORM_RAW),
+        ("wi-na.svg", UNKNOWN_RAW),
+    ];
+
     /// Hash pins guard the "byte-identical to upstream"
     /// claim in `assets/icons/weather-icons/README.md`.
     /// A whitespace-normalising pre-commit hook or a
@@ -122,8 +204,28 @@ mod tests {
             "571cef0545b87794c78cdc1a13da4c1011f88c3c23fb308d27932fb33fdbbeea",
         ),
         (
+            "wi-fog.svg",
+            "80f225af4bed4acaca2604dcbc6aac5f078fe286890bd97cebb23278dc138cc5",
+        ),
+        (
+            "wi-sprinkle.svg",
+            "82af77373374946ad72ba19bc8ab36a4ff0f71995471281e7797a26f8e36aba9",
+        ),
+        (
             "wi-rain.svg",
             "9cfadbeb849500e135cba50dcb812d4084a5ee91d0652c1a5a20929693884c28",
+        ),
+        (
+            "wi-snow.svg",
+            "8401a01fff4cf40a6d78a79f2d4bfc8645fd74b4fc793efa16a4c2369132fe9c",
+        ),
+        (
+            "wi-thunderstorm.svg",
+            "5714873e99b82a9938f89f8c06eda575a4255264cb6d15c9c454bf7ed6f41543",
+        ),
+        (
+            "wi-na.svg",
+            "edf0c9d7edbf4261cd2c727d9e1d89934d1f1337a47a89d0b6696c0b12059c7c",
         ),
     ];
 
@@ -141,20 +243,48 @@ mod tests {
         out
     }
 
+    /// Every [`ConditionCategory`] variant, listed
+    /// explicitly so this array drives the coverage
+    /// test below. Adding a new variant makes this
+    /// array fail to compile (exhaustive match) and
+    /// forces a paired icon update.
+    const ALL_CATEGORIES: &[ConditionCategory] = &[
+        ConditionCategory::Clear,
+        ConditionCategory::PartlyCloudy,
+        ConditionCategory::Cloudy,
+        ConditionCategory::Fog,
+        ConditionCategory::Drizzle,
+        ConditionCategory::Rain,
+        ConditionCategory::Snow,
+        ConditionCategory::Thunderstorm,
+        ConditionCategory::Unknown,
+    ];
+
     #[test]
-    fn each_icon_covers_every_condition_variant() {
-        // If a new Condition is added, this match-based
-        // check fails to compile until an icon is wired
-        // in — keeps the dashboard from silently
-        // rendering a blank tile for an unlabelled
-        // variant.
-        for c in [
-            Condition::Sunny,
-            Condition::PartlyCloudy,
-            Condition::Cloudy,
-            Condition::Rain,
-        ] {
-            let svg = icon_for(c);
+    fn all_categories_array_matches_enum_variants_exhaustively() {
+        // Compile-time enforcement via an exhaustive
+        // match: a new variant breaks this function
+        // until added to `ALL_CATEGORIES`, which in
+        // turn forces the coverage tests to re-run.
+        for &c in ALL_CATEGORIES {
+            match c {
+                ConditionCategory::Clear
+                | ConditionCategory::PartlyCloudy
+                | ConditionCategory::Cloudy
+                | ConditionCategory::Fog
+                | ConditionCategory::Drizzle
+                | ConditionCategory::Rain
+                | ConditionCategory::Snow
+                | ConditionCategory::Thunderstorm
+                | ConditionCategory::Unknown => {}
+            }
+        }
+    }
+
+    #[test]
+    fn icon_for_category_covers_every_variant() {
+        for &c in ALL_CATEGORIES {
+            let svg = icon_for_category(c);
             assert!(!svg.is_empty(), "{c:?} icon empty");
             assert!(svg.starts_with("<svg"), "{c:?} icon not trimmed to root");
             assert!(svg.contains("<path"), "{c:?} icon has no <path> data");
@@ -162,22 +292,50 @@ mod tests {
     }
 
     #[test]
-    fn each_icon_renders_visible_pixels() {
-        // The old test (pre-`<svg>` wrapping era)
-        // asserted `fill="black"` presence, which was a
-        // weak but non-trivial "icon will paint
-        // something" invariant. Weather Icons SVGs
-        // rely on the SVG default fill, so the new
-        // check is: no <path> element carries
-        // `fill="none"` without a compensating stroke.
-        // A path with `fill="none"` and no stroke
-        // renders nothing, so a future upstream
-        // refresh introducing one would silently
-        // produce a blank icon on e-ink.
-        for raw in [SUNNY_RAW, PARTLY_CLOUDY_RAW, CLOUDY_RAW, RAIN_RAW] {
+    fn icon_for_wmo_is_total_over_every_documented_code() {
+        // `WmoCode::ALL` is the single source of truth
+        // for "documented variants" — iterating it here
+        // means a new variant trips both coarsen's
+        // exhaustive match and this icon coverage test
+        // without any list to keep in sync.
+        for &code in WmoCode::ALL {
+            let svg = icon_for_wmo(code);
+            assert!(!svg.is_empty(), "{code:?} icon empty");
+            assert!(svg.starts_with("<svg"), "{code:?} icon not trimmed");
+            assert!(svg.contains("<path"), "{code:?} icon has no <path>");
+        }
+    }
+
+    #[test]
+    fn icon_for_wmo_falls_back_to_coarsened_category() {
+        // The default arm is the coarsen fallback;
+        // lock that equivalence so a future PR adding
+        // a specialized arm doesn't accidentally break
+        // the guarantee for unspecialised codes. Picks
+        // three representative unspecialised codes.
+        for code in [
+            WmoCode::RainSlight,
+            WmoCode::SnowSlight,
+            WmoCode::Thunderstorm,
+        ] {
+            assert_eq!(
+                icon_for_wmo(code),
+                icon_for_category(code.coarsen()),
+                "coarsen fallback drifted for {code:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn every_icon_renders_visible_pixels() {
+        // Weather Icons SVGs rely on the SVG default
+        // fill (black); a future upstream refresh
+        // introducing a bare `fill="none"` path would
+        // silently produce a blank icon on e-ink.
+        for (name, raw) in BUNDLED_ICONS {
             assert!(
                 !raw.contains("fill=\"none\""),
-                "bundled icon has a fill=\"none\" path — would render blank"
+                "{name}: has a fill=\"none\" path — would render blank",
             );
         }
     }
@@ -193,14 +351,14 @@ mod tests {
         // internal-entity-expansion attacks depend on
         // its limits — cheaper to forbid the
         // declarations entirely at the asset boundary.
-        for raw in [SUNNY_RAW, PARTLY_CLOUDY_RAW, CLOUDY_RAW, RAIN_RAW] {
+        for (name, raw) in BUNDLED_ICONS {
             assert!(
                 !raw.contains("<!DOCTYPE"),
-                "bundled icon contains <!DOCTYPE declaration"
+                "{name}: contains <!DOCTYPE declaration",
             );
             assert!(
                 !raw.contains("<!ENTITY"),
-                "bundled icon contains <!ENTITY declaration"
+                "{name}: contains <!ENTITY declaration",
             );
         }
     }
@@ -212,19 +370,18 @@ mod tests {
         // See the PINNED_SHA256 comment above for
         // regeneration instructions.
         use sha2::{Digest, Sha256};
-        let inputs: &[(&str, &str)] = &[
-            ("wi-day-sunny.svg", SUNNY_RAW),
-            ("wi-day-cloudy.svg", PARTLY_CLOUDY_RAW),
-            ("wi-cloudy.svg", CLOUDY_RAW),
-            ("wi-rain.svg", RAIN_RAW),
-        ];
-        for (name, content) in inputs {
+        assert_eq!(
+            BUNDLED_ICONS.len(),
+            PINNED_SHA256.len(),
+            "every bundled icon needs a pinned SHA-256",
+        );
+        for (name, content) in BUNDLED_ICONS {
             let got = hex_of(Sha256::digest(content.as_bytes()).as_slice());
-            let expected = PINNED_SHA256
-                .iter()
-                .find(|(n, _)| n == name)
-                .map(|(_, h)| *h)
-                .expect("PINNED_SHA256 missing entry");
+            let expected =
+                PINNED_SHA256.iter().find(|(n, _)| n == name).map_or_else(
+                    || panic!("PINNED_SHA256 missing entry for {name}"),
+                    |(_, h)| *h,
+                );
             assert_eq!(
                 got, expected,
                 "{name}: sha256 drift — either a refresh \

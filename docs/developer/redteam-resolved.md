@@ -5,6 +5,20 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-20 (feat — v0.21.0 weather_code plumbing + WMO taxonomy + 9-icon dispatch)
+
+### RT-114 — `ConditionCategory::Unknown` was unreachable through the documented pipeline
+**Category:** Correctness / dead code
+**Description:** PR 2 introduced `ConditionCategory::Unknown` with a docstring claiming it surfaces when "the provider returned a WMO code outside the documented subset". But `pick_weather_code_series` at the Open-Meteo boundary narrowed out-of-subset bytes to `None`, then `classify_category(None, …)` fell back to `classify_weather(…).to_category()` whose image is `{Clear, PartlyCloudy, Cloudy, Rain}` — and the test `fallback_cannot_produce_detailed_categories` explicitly locked `Unknown` *out* of that fallback. A Sentinel/out-of-table code like `weather_code: [4]` silently became PartlyCloudy/Cloudy based on numeric signals, hiding bad provider data. Artisan duplicated this as AQ-127. `crates/bellwether/src/dashboard/classify.rs`, `crates/bellwether/src/clients/open_meteo/mod.rs`.
+**Fix:** Introduced `pub enum WeatherCode { Wmo(WmoCode), Unrecognised(u8) }` at the classify module. `pick_weather_code_series` now surfaces in-byte-range codes outside the WMO subset as `Some(Unrecognised(byte))` rather than collapsing them to `None`; only truly-wire-noise values (negative, fractional, > 255) still become `None`. `classify_category` now takes `Option<WeatherCode>` and returns `ConditionCategory::Unknown` for the `Unrecognised` arm — restoring the invariant the docstring claimed. New wiremock test `fetch_partitions_weather_codes_into_three_outcomes` and classify unit test `category_surfaces_unknown_for_unrecognised_provider_code` lock the behaviour. Snapshot storage also shifts from `Vec<Option<WmoCode>>` to `Vec<Option<WeatherCode>>` so the distinction is preserved through the whole pipeline.
+
+### RT-115 — `Fidelity::Detailed` was silently ignored by the renderer
+**Category:** Correctness / API surface
+**Description:** PR 3 added a `Fidelity { Simple, Detailed }` enum and an optional `fidelity` field on `WidgetKind::WeatherIcon`, but the render site at `svg/mod.rs:220` destructured `WidgetKind::WeatherIcon { day, .. }` and dropped the field. A user setting `fidelity = "detailed"` in `layout.toml` got zero visible change, no warning, no log, and no test locked the TOML-to-render contract. The config surface promised more than the runtime delivered; when PR 4 eventually rewired the renderer, pre-set `fidelity = "detailed"` layouts would suddenly shift appearance with no migration notice. Artisan duplicated this as AQ-131. `crates/bellwether/src/dashboard/layout/mod.rs`, `crates/bellwether/src/dashboard/svg/mod.rs`.
+**Fix:** Removed the `Fidelity` enum and the `fidelity` field from this PR entirely. The field + enum will be reintroduced in PR 4 coupled to the renderer change, so the surface matches the capability when it lands. No user `layout.toml` has yet set `fidelity`, so the removal is zero-cost. The three layout-test entries covering default/detailed/unknown also go away with the enum.
+
+---
+
 ## 2026-04-20 (fix — v0.20.1 post-commit review of the Weather Icons swap)
 
 ### RT-A — Preview-compiled binary redistributed Font Software without OFL text (§2)

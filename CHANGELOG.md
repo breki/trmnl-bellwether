@@ -12,6 +12,25 @@ and this project adheres to
 
 ### Added
 
+- WMO 4677 `weather_code` plumbed end-to-end from
+  Open-Meteo into `WeatherSnapshot`, with a new
+  `WeatherCode { Wmo(WmoCode), Unrecognised(u8) }`
+  type at the narrowing boundary that preserves the
+  difference between "provider sent no code" and
+  "provider sent a code we don't recognise".
+- `ConditionCategory` — 9-variant coarse display
+  taxonomy (`Clear`, `PartlyCloudy`, `Cloudy`, `Fog`,
+  `Drizzle`, `Rain`, `Snow`, `Thunderstorm`,
+  `Unknown`) with five new bundled Weather Icons
+  SVGs (`wi-fog`, `wi-sprinkle`, `wi-snow`,
+  `wi-thunderstorm`, `wi-na`) covering the five
+  categories that had no glyph before. Each icon
+  carries a SHA-256 pin against the upstream
+  byte-identity contract.
+- `icon_for_category` / `icon_for_wmo` dispatch with
+  coarsen fallback, so detailed WMO-specific glyphs
+  can be added per-variant in later PRs without
+  breaking totality.
 - `cargo xtask preview` — regenerates the sample
   dashboard and serves a three-panel HTML viewer
   (raw SVG + resvg pre-dither PNG + final 1-bit BMP)

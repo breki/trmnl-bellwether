@@ -23,6 +23,7 @@
 //! | `gust_kmh`          | km/h                   |
 //! | `cloud_cover_pct`   | percent (0–100)        |
 //! | `precip_mm`         | mm accumulated / step  |
+//! | `weather_code`      | WMO 4677 code (0–99)   |
 //!
 //! All series are hourly and parallel to
 //! [`WeatherSnapshot::timestamps`]. `None` entries
@@ -40,6 +41,7 @@ use chrono::{DateTime, Utc};
 pub use error::{BoxError, WeatherError};
 
 use crate::dashboard::astro::GeoPoint;
+use crate::dashboard::classify::WeatherCode;
 
 /// Hourly forecast data in display units, ready for
 /// the dashboard model to consume without
@@ -63,6 +65,7 @@ pub struct WeatherSnapshot {
     gust_kmh: Vec<Option<f64>>,
     cloud_cover_pct: Vec<Option<f64>>,
     precip_mm: Vec<Option<f64>>,
+    weather_code: Vec<Option<WeatherCode>>,
     warning: Option<String>,
 }
 
@@ -89,6 +92,14 @@ pub struct WeatherSnapshotBuilder {
     pub cloud_cover_pct: Vec<Option<f64>>,
     /// Precipitation accumulated over the step, mm.
     pub precip_mm: Vec<Option<f64>>,
+    /// Observed weather code for the step. `None` when
+    /// the provider didn't supply one; `Some(Wmo(_))`
+    /// for a recognised WMO 4677 code;
+    /// `Some(Unrecognised(_))` when the wire carried a
+    /// byte outside the documented subset (the
+    /// display layer then surfaces
+    /// [`ConditionCategory::Unknown`](crate::dashboard::classify::ConditionCategory::Unknown)).
+    pub weather_code: Vec<Option<WeatherCode>>,
     /// Provider-supplied warning.
     pub warning: Option<String>,
 }
@@ -105,7 +116,7 @@ impl WeatherSnapshotBuilder {
             return Err(WeatherError::EmptySnapshot);
         }
         let expected = self.timestamps.len();
-        let checks: [(&str, usize); 7] = [
+        let checks: [(&str, usize); 8] = [
             ("temperature_c", self.temperature_c.len()),
             ("humidity_pct", self.humidity_pct.len()),
             ("wind_kmh", self.wind_kmh.len()),
@@ -113,6 +124,7 @@ impl WeatherSnapshotBuilder {
             ("gust_kmh", self.gust_kmh.len()),
             ("cloud_cover_pct", self.cloud_cover_pct.len()),
             ("precip_mm", self.precip_mm.len()),
+            ("weather_code", self.weather_code.len()),
         ];
         for (name, got) in checks {
             if got != expected {
@@ -132,6 +144,7 @@ impl WeatherSnapshotBuilder {
             gust_kmh: self.gust_kmh,
             cloud_cover_pct: self.cloud_cover_pct,
             precip_mm: self.precip_mm,
+            weather_code: self.weather_code,
             warning: self.warning,
         })
     }
@@ -190,6 +203,17 @@ impl WeatherSnapshot {
     #[must_use]
     pub fn precip_mm(&self) -> &[Option<f64>] {
         &self.precip_mm
+    }
+
+    /// Observed weather code for each step. See
+    /// [`WeatherCode`] for the three-way semantics and
+    /// [`classify_category`](crate::dashboard::classify::classify_category)
+    /// for the display-layer dispatch. `None` entries
+    /// mean "provider didn't supply" and route through
+    /// the cloud+precip heuristic at display time.
+    #[must_use]
+    pub fn weather_code(&self) -> &[Option<WeatherCode>] {
+        &self.weather_code
     }
 
     /// Provider-supplied warning (rate limit,

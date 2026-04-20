@@ -28,6 +28,7 @@ fn builder_of_length(n: usize) -> WeatherSnapshotBuilder {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![None; n],
         precip_mm: vec![None; n],
+        weather_code: vec![None; n],
         warning: None,
     }
 }
@@ -75,6 +76,7 @@ fn build_flags_each_series_by_name() {
         "gust_kmh",
         "cloud_cover_pct",
         "precip_mm",
+        "weather_code",
     ];
     for (index, expected_name) in names.iter().enumerate() {
         let mut b = builder_of_length(3);
@@ -87,6 +89,7 @@ fn build_flags_each_series_by_name() {
             4 => b.gust_kmh = short,
             5 => b.cloud_cover_pct = short,
             6 => b.precip_mm = short,
+            7 => b.weather_code = vec![None; 2],
             _ => unreachable!(),
         }
         let err = b.build().unwrap_err();

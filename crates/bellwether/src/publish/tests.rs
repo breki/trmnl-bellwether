@@ -73,7 +73,10 @@ struct FakeProvider {
 }
 
 enum FakeResponse {
-    Ok(WeatherSnapshot),
+    // Boxed so the enum stays lean — `WeatherSnapshot`
+    // is ~240 bytes and makes the error variant pay
+    // for it on every allocation.
+    Ok(Box<WeatherSnapshot>),
     /// Provider-level error. The message is cloned per
     /// call so the trait object can re-yield a fresh
     /// boxed error (the outer `WeatherError` is not
@@ -84,7 +87,7 @@ enum FakeResponse {
 impl FakeProvider {
     fn ok(snapshot: WeatherSnapshot) -> Arc<dyn WeatherProvider> {
         Arc::new(Self {
-            response: FakeResponse::Ok(snapshot),
+            response: FakeResponse::Ok(Box::new(snapshot)),
         })
     }
 
@@ -103,7 +106,7 @@ impl WeatherProvider for FakeProvider {
 
     async fn fetch(&self) -> Result<WeatherSnapshot, WeatherError> {
         match &self.response {
-            FakeResponse::Ok(s) => Ok(s.clone()),
+            FakeResponse::Ok(s) => Ok((**s).clone()),
             FakeResponse::ProviderError(msg) => {
                 Err(WeatherError::Provider(msg.clone().into()))
             }
@@ -127,6 +130,7 @@ fn simple_snapshot() -> WeatherSnapshot {
         gust_kmh: vec![None; 2],
         cloud_cover_pct: vec![Some(20.0); 2],
         precip_mm: vec![Some(0.0); 2],
+        weather_code: vec![None; 2],
         warning: None,
     }
     .build()
@@ -163,6 +167,7 @@ fn rich_snapshot_at(start: DateTime<Utc>) -> WeatherSnapshot {
         gust_kmh: vec![Some(21.6); n],
         cloud_cover_pct: vec![Some(40.0); n],
         precip_mm,
+        weather_code: vec![None; n],
         warning: None,
     }
     .build()

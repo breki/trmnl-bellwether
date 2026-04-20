@@ -583,7 +583,14 @@ fn render_weather_icon(bounds: Rect, condition: Option<Condition>) -> String {
     let sz = min_dim * ICON_FRACTION / 100;
     let tx = bounds.x + bounds.w.saturating_sub(sz) / 2;
     let ty = bounds.y + bounds.h.saturating_sub(sz) / 2;
-    let icon = icons::icon_for(condition);
+    // `Condition` is still the model's current weather
+    // type; the `to_category` bridge (deprecated, see
+    // HANDOFF PR 4+) routes its four-variant values
+    // through the new nine-variant `icon_for_category`
+    // dispatch so the SVG pipeline doesn't need to care
+    // that the taxonomy expanded.
+    #[allow(deprecated)]
+    let icon = icons::icon_for_category(condition.to_category());
     format!(
         "<svg x=\"{tx}\" y=\"{ty}\" width=\"{sz}\" height=\"{sz}\">{icon}</svg>"
     )

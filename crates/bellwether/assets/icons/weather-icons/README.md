@@ -67,17 +67,27 @@ edit fails the build before it reaches a release.
 
 ## Bundled files
 
-| File | `Condition` it serves |
-|------|----------------------|
-| `wi-day-sunny.svg` | `Sunny` |
-| `wi-day-cloudy.svg` | `PartlyCloudy` |
-| `wi-cloudy.svg` | `Cloudy` |
-| `wi-rain.svg` | `Rain` |
+The 9 category icons land as the PR 3 baseline — one
+SVG per [`ConditionCategory`] variant. Detailed
+per-[`WmoCode`] glyphs land incrementally on top of
+this set in PR 4+.
 
-The full two-tier fidelity model (9 category icons
-plus ~15 detailed WMO-specific icons) is sketched in
-`docs/developer/HANDOFF.md` and will land
-incrementally; additions to this directory should
-come from the same upstream `svg/` tree (with a fresh
-SHA-256 pin) to preserve both the license condition
+| File | `ConditionCategory` it serves |
+|------|-------------------------------|
+| `wi-day-sunny.svg`     | `Clear` |
+| `wi-day-cloudy.svg`    | `PartlyCloudy` |
+| `wi-cloudy.svg`        | `Cloudy` |
+| `wi-fog.svg`           | `Fog` |
+| `wi-sprinkle.svg`      | `Drizzle` |
+| `wi-rain.svg`          | `Rain` |
+| `wi-snow.svg`          | `Snow` |
+| `wi-thunderstorm.svg`  | `Thunderstorm` |
+| `wi-na.svg`            | `Unknown` |
+
+[`ConditionCategory`]: ../../../src/dashboard/classify.rs
+[`WmoCode`]: ../../../src/dashboard/classify.rs
+
+Additions to this directory must come from the same
+upstream `svg/` tree (with a fresh SHA-256 pin in
+`icons.rs`) to preserve both the license condition
 and the byte-identity claim.

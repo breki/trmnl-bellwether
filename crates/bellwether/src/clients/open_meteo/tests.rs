@@ -5,6 +5,7 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::*;
+use crate::dashboard::classify::{WeatherCode, WmoCode};
 
 fn simple_body() -> serde_json::Value {
     json!({
@@ -16,7 +17,8 @@ fn simple_body() -> serde_json::Value {
             "cloud_cover": [20.0, 25.0],
             "wind_speed_10m": [5.5, 6.0],
             "wind_direction_10m": [180.0, 190.0],
-            "wind_gusts_10m": [10.0, 12.0]
+            "wind_gusts_10m": [10.0, 12.0],
+            "weather_code": [0, 61]
         }
     })
 }
@@ -49,6 +51,77 @@ async fn fetch_parses_timestamps_and_all_series() {
     assert_eq!(snap.wind_kmh(), &[Some(5.5), Some(6.0)]);
     assert_eq!(snap.wind_dir_deg(), &[Some(180.0), Some(190.0)]);
     assert_eq!(snap.gust_kmh(), &[Some(10.0), Some(12.0)]);
+    assert_eq!(
+        snap.weather_code(),
+        &[
+            Some(WeatherCode::Wmo(WmoCode::Clear)),
+            Some(WeatherCode::Wmo(WmoCode::RainSlight)),
+        ],
+    );
+}
+
+#[tokio::test]
+async fn fetch_treats_absent_weather_code_series_as_all_none() {
+    // Provider may omit the field for models that
+    // don't expose WMO codes; fallback path must not
+    // error.
+    let body = json!({
+        "hourly": {
+            "time": ["2026-04-19T00:00", "2026-04-19T01:00"],
+            "temperature_2m": [10.0, 11.5]
+        }
+    });
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(ENDPOINT_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+    let client = Client::with_base_url(server.uri());
+    let snap = client.fetch(&ok_request()).await.unwrap();
+    assert_eq!(snap.weather_code(), &[None, None]);
+}
+
+#[tokio::test]
+async fn fetch_partitions_weather_codes_into_three_outcomes() {
+    // WMO 4677 is not a contiguous range — it's a
+    // sparse set. The boundary produces three distinct
+    // outcomes:
+    //   - documented codes (0, 99) → Some(Wmo(_))
+    //   - in-byte-range gap codes (4) →
+    //     Some(Unrecognised(byte)) so the display can
+    //     surface ConditionCategory::Unknown
+    //   - out-of-byte (-1, 300) and non-integer (50.5)
+    //     values → None (wire noise, not a code).
+    let body = json!({
+        "hourly": {
+            "time": [
+                "2026-04-19T00:00", "2026-04-19T01:00",
+                "2026-04-19T02:00", "2026-04-19T03:00",
+                "2026-04-19T04:00", "2026-04-19T05:00"
+            ],
+            "weather_code": [0, 99, 4, 50.5, -1, 300]
+        }
+    });
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(ENDPOINT_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+    let client = Client::with_base_url(server.uri());
+    let snap = client.fetch(&ok_request()).await.unwrap();
+    assert_eq!(
+        snap.weather_code(),
+        &[
+            Some(WeatherCode::Wmo(WmoCode::Clear)),
+            Some(WeatherCode::Wmo(WmoCode::ThunderstormHailHeavy)),
+            Some(WeatherCode::Unrecognised(4)),
+            None,
+            None,
+            None,
+        ],
+    );
 }
 
 #[tokio::test]

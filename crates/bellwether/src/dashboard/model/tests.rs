@@ -93,6 +93,7 @@ fn snapshot_72h(
         gust_kmh: vec![Some(21.6); n],
         cloud_cover_pct: vec![Some(cloud_pct); n],
         precip_mm: vec![Some(precip_mm); n],
+        weather_code: vec![None; n],
         warning: None,
     })
 }
@@ -110,6 +111,7 @@ fn all_none_snapshot(timestamps: Vec<DateTime<Utc>>) -> WeatherSnapshot {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![None; n],
         precip_mm: vec![None; n],
+        weather_code: vec![None; n],
         warning: None,
     })
 }
@@ -183,6 +185,7 @@ fn today_summary_covers_samples_on_local_today() {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![Some(10.0); n],
         precip_mm: vec![Some(0.0); n],
+        weather_code: vec![None; n],
         warning: None,
     });
     let model = build_model(&snap, ctx_utc(now));
@@ -205,6 +208,7 @@ fn missing_temperature_collapses_current_panel() {
         gust_kmh: vec![None],
         cloud_cover_pct: vec![Some(10.0)],
         precip_mm: vec![None],
+        weather_code: vec![None; 1],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -224,6 +228,7 @@ fn missing_gust_and_humidity_populate_as_none() {
         gust_kmh: vec![None],
         cloud_cover_pct: vec![Some(10.0)],
         precip_mm: vec![Some(0.0)],
+        weather_code: vec![None; 1],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -246,6 +251,7 @@ fn missing_cloud_and_precip_defaults_day_to_cloudy() {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![None; n],
         precip_mm: vec![None; n],
+        weather_code: vec![None; n],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -279,6 +285,7 @@ fn partial_day_under_threshold_drops_tile() {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![Some(10.0); n],
         precip_mm: vec![Some(0.0); n],
+        weather_code: vec![None; n],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -301,6 +308,7 @@ fn day_with_all_null_temp_returns_high_and_low_none() {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![Some(30.0); n],
         precip_mm: vec![Some(0.0); n],
+        weather_code: vec![None; n],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -327,6 +335,7 @@ fn any_rainy_hour_makes_the_whole_day_rain() {
         gust_kmh: vec![None; n],
         cloud_cover_pct: vec![Some(5.0); n],
         precip_mm: precip,
+        weather_code: vec![None; n],
         warning: None,
     });
     let now = utc(1_776_423_600_000);
@@ -360,6 +369,7 @@ fn samples_straddling_spring_forward_bucket_into_same_local_date() {
         gust_kmh: vec![None, None],
         cloud_cover_pct: vec![Some(10.0), Some(10.0)],
         precip_mm: vec![Some(0.0), Some(0.0)],
+        weather_code: vec![None, None],
         warning: None,
     });
     let groups = group_sample_indices_by_date(&snap, chrono_tz::Europe::London);
@@ -397,6 +407,7 @@ fn zero_wind_returns_calm_from_north_in_current() {
         gust_kmh: vec![None],
         cloud_cover_pct: vec![Some(0.0)],
         precip_mm: vec![Some(0.0)],
+        weather_code: vec![None; 1],
         warning: None,
     });
     let now = utc(1_776_423_600_000);

@@ -36,6 +36,7 @@ use serde::Deserialize;
 use super::http_util::{self, ReadBodyError};
 use crate::config::OpenMeteoProviderConfig;
 use crate::dashboard::astro::GeoPoint;
+use crate::dashboard::classify::{WeatherCode, WmoCode};
 use crate::weather::{
     WeatherError, WeatherProvider, WeatherSnapshot, WeatherSnapshotBuilder,
 };
@@ -76,7 +77,8 @@ const LATLON_DECIMALS: usize = 6;
 /// Hourly variables the client always requests.
 /// Snake-case names match the modern Open-Meteo API.
 const HOURLY_VARIABLES: &str = "temperature_2m,relative_humidity_2m,precipitation,\
-     cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m";
+     cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,\
+     weather_code";
 
 /// Request parameters for a single forecast fetch.
 ///
@@ -326,6 +328,8 @@ struct RawHourly {
     wind_direction_10m: Option<Vec<Option<f64>>>,
     #[serde(default)]
     wind_gusts_10m: Option<Vec<Option<f64>>>,
+    #[serde(default)]
+    weather_code: Option<Vec<Option<f64>>>,
 }
 
 impl RawResponse {
@@ -356,6 +360,7 @@ impl RawResponse {
             gust_kmh: pick_series("gust_kmh", h.wind_gusts_10m, n)?,
             cloud_cover_pct: pick_series("cloud_cover_pct", h.cloud_cover, n)?,
             precip_mm: pick_series("precip_mm", h.precipitation, n)?,
+            weather_code: pick_weather_code_series(h.weather_code, n)?,
             warning: None,
         };
         builder.build().map_err(OpenMeteoError::Invariant)
@@ -377,6 +382,71 @@ fn pick_series(
         Some(s) if s.len() == n => Ok(sanitise_non_finite(s)),
         Some(s) => Err(OpenMeteoError::SeriesLengthMismatch {
             series: name,
+            expected: n,
+            got: s.len(),
+        }),
+        None => Ok(vec![None; n]),
+    }
+}
+
+/// Narrow the raw JSON numeric series for
+/// `weather_code` into `Vec<Option<WeatherCode>>`.
+///
+/// Three outcomes per hour:
+/// - Non-integer / non-finite / negative / >255 →
+///   `None` (the provider's contract is "integer
+///   weather code in the u8 range", so anything else
+///   is wire noise).
+/// - Integer in `0..=255` that's outside the
+///   documented WMO 4677 subset →
+///   `Some(WeatherCode::Unrecognised(byte))` so the
+///   display can surface
+///   [`ConditionCategory::Unknown`](crate::dashboard::classify::ConditionCategory::Unknown)
+///   instead of silently heuristic-guessing.
+/// - Integer matching a documented variant →
+///   `Some(WeatherCode::Wmo(code))`.
+///
+/// An absent series yields `vec![None; n]` like
+/// [`pick_series`]; a length mismatch surfaces as
+/// [`OpenMeteoError::SeriesLengthMismatch`].
+fn pick_weather_code_series(
+    series: Option<Vec<Option<f64>>>,
+    n: usize,
+) -> Result<Vec<Option<WeatherCode>>, OpenMeteoError> {
+    match series {
+        Some(s) if s.len() == n => {
+            Ok(s.into_iter()
+                .map(|v| {
+                    let x = v?;
+                    if !x.is_finite() || x.fract() != 0.0 {
+                        return None;
+                    }
+                    // Narrow to u8 first; anything outside
+                    // this range isn't a weather code at
+                    // all (negative / absurdly large /
+                    // fractional). `WmoCode::try_from`
+                    // then sorts in-range bytes into
+                    // recognised vs. unrecognised.
+                    if !(0.0..=255.0).contains(&x) {
+                        return None;
+                    }
+                    // Safe: range-checked non-negative
+                    // integer ≤ 255; no truncation or sign
+                    // loss possible.
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss
+                    )]
+                    let raw = x as u8;
+                    Some(WmoCode::try_from(raw).map_or(
+                        WeatherCode::Unrecognised(raw),
+                        WeatherCode::Wmo,
+                    ))
+                })
+                .collect())
+        }
+        Some(s) => Err(OpenMeteoError::SeriesLengthMismatch {
+            series: "weather_code",
             expected: n,
             got: s.len(),
         }),

@@ -7,6 +7,41 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Disabled anti-aliasing at the rasteriser for a
+  pure-bilevel pipeline (v0.24.0)
+
+    The supersample + downsample approach in the
+    earlier v0.23.2 attempt didn't help on hardware —
+    actually made things worse for thin strokes, because
+    averaging a 1-pixel line at 2× resolution produces
+    a 50%-grey band that FS then dithered into speckle.
+    Reverted v0.23.2 and went surgical instead:
+    set `usvg::Options::shape_rendering =
+    ShapeRendering::CrispEdges` plus `text_rendering =
+    TextRendering::OptimizeSpeed` in the `Renderer`
+    constructor. resvg honours those settings per-path
+    (`path.rs: paint.anti_alias =
+    path.rendering_mode().use_shape_antialiasing()`),
+    and usvg flattens text glyph paths with the same
+    rendering mode (`text::flatten::resolve_rendering_mode`
+    maps OptimizeSpeed → CrispEdges). Result: the
+    grayscale buffer contains only pure 0 and pure 255.
+    Floyd-Steinberg has nothing to diffuse. The e-ink
+    output is pixel-exact bilevel.
+
+    Trade-off is pixel-level staircase aliasing on
+    diagonals. At ~150 DPI glance distance on the
+    TRMNL-OG panel, that's a much smaller perceptual
+    cost than the AA-and-diffuse shimmer we were
+    paying for.
+
+    New test
+    `rasteriser_produces_bilevel_luma_with_no_intermediate_greys`
+    rasterises a 2-pixel-wide diagonal line and
+    confirms every luma sample is either 0 or 255.
+    Locks the invariant against a future settings
+    change or upstream resvg behaviour shift.
+
 - Killed edge-shimmer on the e-ink panel with a
   pre-threshold snap in the Floyd–Steinberg dither
   (v0.23.1)

@@ -1,6 +1,6 @@
 [package]
 name = "bellwether"
-version = "0.23.1"
+version = "0.24.0"
 edition = "2024"
 description = "TRMNL e-ink dashboard server core library"
 license = "MIT"

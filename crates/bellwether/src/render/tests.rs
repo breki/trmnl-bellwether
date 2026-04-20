@@ -49,6 +49,44 @@ fn bmp_to_bits(bmp: &[u8]) -> (Vec<bool>, u32, u32) {
 }
 
 #[test]
+fn rasteriser_produces_bilevel_luma_with_no_intermediate_greys() {
+    // The whole point of v0.24.0's shape-rendering =
+    // CrispEdges switch is that edge pixels should be
+    // pure 0 or pure 255 after luma conversion — no
+    // AA greys in between for Floyd-Steinberg to
+    // diffuse into a shimmer pattern. Rasterise a
+    // diagonal line (the worst-case AA trigger under
+    // the old settings) and confirm the grayscale
+    // buffer contains only {0, 255}.
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
+             width="32" height="32" viewBox="0 0 32 32">
+          <path d="M 0 0 L 32 32" stroke="black"
+                stroke-width="2" fill="none"/>
+        </svg>"#;
+    let cfg = RenderConfig {
+        width: 32,
+        height: 32,
+        ..Default::default()
+    };
+    let renderer = Renderer::new();
+    // Reach into the pipeline to inspect the raster
+    // stage directly — public render_to_bmp collapses
+    // everything through FS, hiding the question we
+    // actually want to ask ("does the raster itself
+    // emit greys?").
+    let pixmap = renderer.rasterize(svg, &cfg).expect("rasterise");
+    let grayscale = rgba_to_luma(pixmap.data());
+    for (i, &g) in grayscale.iter().enumerate() {
+        assert!(
+            g == 0 || g == 255,
+            "pixel {i} at luma {g} is an intermediate grey — \
+             configure_bilevel should have disabled AA at \
+             the rasterizer",
+        );
+    }
+}
+
+#[test]
 fn renders_solid_white_rect_to_all_white() {
     let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
              width="16" height="8" viewBox="0 0 16 8">

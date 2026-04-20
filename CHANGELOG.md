@@ -10,6 +10,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Rasterisation now disables anti-aliasing at the
+  source via `usvg::Options::shape_rendering =
+  CrispEdges` and `text_rendering = OptimizeSpeed`.
+  The grayscale buffer fed into the 1-bit dither now
+  contains only pure 0 and pure 255 — no intermediate
+  greys, so Floyd-Steinberg has nothing to diffuse and
+  the characteristic shimmer along glyphs and icon
+  curves disappears entirely. Trade-off: diagonals
+  show pixel-level staircase aliasing. At ~150 DPI
+  glance distance, that's less distracting than the
+  shimmer was. New test
+  `rasteriser_produces_bilevel_luma_with_no_intermediate_greys`
+  locks the invariant so a future setting change can't
+  silently re-enable AA.
+
 ### Fixed
 
 - Floyd–Steinberg dither now snaps near-extreme pixels

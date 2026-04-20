@@ -187,11 +187,18 @@ impl Renderer {
     /// SVGs containing `<text>` will rasterize with the
     /// glyphs missing unless [`Self::load_font_data`] is
     /// called first.
+    ///
+    /// The returned renderer disables anti-aliasing at
+    /// the rasterizer: `shape_rendering =
+    /// ShapeRendering::CrispEdges` and `text_rendering =
+    /// TextRendering::OptimizeSpeed`. See
+    /// [`configure_bilevel`] for why this is the right
+    /// default for a 1-bit e-ink output target.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            options: usvg::Options::default(),
-        }
+        let mut options = usvg::Options::default();
+        configure_bilevel(&mut options);
+        Self { options }
     }
 
     /// Build a renderer with the bundled
@@ -348,6 +355,35 @@ impl Renderer {
         resvg::render(&tree, transform, &mut pixmap.as_mut());
         Ok(pixmap)
     }
+}
+
+/// Configure a [`usvg::Options`] for pure-bilevel
+/// rasterisation: every shape path is drawn without
+/// anti-aliasing (`ShapeRendering::CrispEdges`), and
+/// text glyph paths inherit the same by way of
+/// `TextRendering::OptimizeSpeed` (which `usvg`
+/// internally maps to `CrispEdges` during
+/// `text::flatten::resolve_rendering_mode`).
+///
+/// Why: the output target is a 1-bit e-ink panel, and
+/// the source material is pure black-on-white — SVG
+/// paths and hinted glyphs. A single-sample AA pass at
+/// native resolution leaves every edge pixel at some
+/// intermediate grey whose coverage depends on where
+/// the path crosses the pixel boundary. Floyd-Steinberg
+/// then diffuses thousands of tiny edge errors into a
+/// visible "buzzing" shimmer along every curve on the
+/// panel. Disabling AA at the rasterizer removes the
+/// greys at source — the luma buffer contains only 0
+/// and 255, FS has nothing to diffuse, and the output
+/// is pixel-exact bilevel.
+///
+/// Trade-off: diagonals render as pixel-level staircase
+/// aliasing. At TRMNL-OG's ~150 DPI glance distance
+/// this is far less distracting than shimmer.
+fn configure_bilevel(options: &mut usvg::Options<'_>) {
+    options.shape_rendering = usvg::ShapeRendering::CrispEdges;
+    options.text_rendering = usvg::TextRendering::OptimizeSpeed;
 }
 
 /// Fully opaque white, used as the compositing

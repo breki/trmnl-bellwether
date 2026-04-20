@@ -59,6 +59,8 @@ cargo xtask fmt               # format code
 cargo xtask dupes             # code duplication check
 cargo xtask deploy-setup      # one-time RPi provisioning
 cargo xtask deploy            # build + deploy to RPi
+cargo xtask preview           # regen dashboard sample + serve
+                              # SVG/PNG/BMP viewer at :8123
 ```
 
 See `deploy/README.md` for deployment details.

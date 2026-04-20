@@ -7,6 +7,56 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Added `cargo xtask preview` for rendered-dashboard
+  iteration loop (v0.19.0)
+
+    New xtask subcommand that regenerates the sample
+    dashboard via the existing
+    `publish::tests::generate_dashboard_sample` ignored
+    test and serves a three-panel HTML viewer on
+    `127.0.0.1:8123`. The panels show, top-to-bottom:
+    the raw SVG, a `resvg` raster PNG before dither,
+    and the final 1-bit BMP. Seeing all three
+    side-by-side makes it possible to isolate a visual
+    regression to the SVG layout, the rasteriser, or
+    the Floyd–Steinberg dither in one glance rather
+    than diffing BMPs. Flags: `--port N` (default
+    8123), `--open` (off by default — opt-in browser
+    launch to stay SSH-safe).
+
+    Split the renderer at a new seam to enable the
+    middle panel: factored out a private
+    `Renderer::rasterize` helper that runs the
+    usvg-parse + resvg-render stages and returns a
+    `tiny_skia::Pixmap`. The existing `render_to_bmp`
+    now composes `rasterize` + grayscale + dither +
+    BMP encode, and a new public `render_to_png`
+    composes `rasterize` + `pixmap.encode_png()`.
+    Both methods share the bit-depth pre-check so
+    they reject the same inputs (AQ-E).
+
+    Sample-generator test `generate_dashboard_sample_bmp`
+    renamed to `generate_dashboard_sample` and now
+    writes all three artefacts (SVG, PNG, BMP) to
+    the workspace-root `target/` via
+    `CARGO_MANIFEST_DIR`-anchored navigation, so xtask
+    can serve them regardless of which crate the test
+    ran from.
+
+    Security posture: preview server binds loopback
+    only, serves a hardcoded 4-entry filename
+    allowlist (`preview-index.html` +
+    `dashboard-sample.{svg,png,bmp}`), and never
+    exposes `target/` directly (RT-A). Windows
+    browser-open path documented with an explicit
+    contract comment about the `cmd /C start`
+    metacharacter trap (RT-D). Server readiness
+    guaranteed before `--open` fires (RT-C).
+    Stale-preview failure mode (silent pass-through
+    when the ignored test name drifts) caught via
+    artefact-mtime verification after the cargo test
+    call (AQ-D).
+
 - Swapped dashboard font to Source Sans 3
   Semibold (v0.18.0)
 

@@ -145,6 +145,16 @@ pub enum RenderError {
         /// The rejected depth variant.
         depth: BitDepth,
     },
+    /// PNG encoding of the rasterized pixmap failed.
+    /// Produced by [`Renderer::render_to_png`]. Boxed
+    /// as a `dyn StdError` so the public enum doesn't
+    /// leak the `tiny_skia` / `png` version via its
+    /// `Display` output, while still letting callers
+    /// walk [`std::error::Error::source`] — which
+    /// matters because `anyhow`'s `{e:#}` render (used
+    /// by the deploy xtasks) relies on the chain.
+    #[error("encoding PNG")]
+    EncodePng(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Server-side renderer. Holds the `usvg::Options` with
@@ -253,6 +263,56 @@ impl Renderer {
                 depth: cfg.bit_depth,
             });
         }
+        let pixmap = self.rasterize(svg_text, cfg)?;
+        let grayscale = rgba_to_luma(pixmap.data());
+        let bits = dither::floyd_steinberg(&grayscale, cfg.width, cfg.height);
+        Ok(bmp::encode_1bit_bmp(&bits, cfg.width, cfg.height))
+    }
+
+    /// Render an SVG string to an RGBA PNG at
+    /// `cfg.width` × `cfg.height`, **without** the 1-bit
+    /// Floyd–Steinberg dither that [`Self::render_to_bmp`]
+    /// applies. Intended for preview tooling (see
+    /// `cargo xtask preview`) that wants to separate
+    /// "was the SVG rasterised correctly?" from "did the
+    /// dither muddy the output?" during layout work.
+    ///
+    /// Mirrors [`Self::render_to_bmp`]'s bit-depth
+    /// contract: only [`BitDepth::One`] is supported
+    /// today — anything else returns
+    /// [`RenderError::UnsupportedBitDepth`]. The PNG
+    /// bytes themselves are always 8-bit RGBA; the
+    /// `cfg.bit_depth` field is a declaration of the
+    /// *caller's* intended target depth, and the
+    /// future 4-bit PNG path (for TRMNL X) will honour
+    /// it. Erroring rather than silently ignoring keeps
+    /// the two render methods symmetric on the same
+    /// [`RenderConfig`] input.
+    pub fn render_to_png(
+        &self,
+        svg_text: &str,
+        cfg: &RenderConfig,
+    ) -> Result<Vec<u8>, RenderError> {
+        if cfg.bit_depth != BitDepth::One {
+            return Err(RenderError::UnsupportedBitDepth {
+                depth: cfg.bit_depth,
+            });
+        }
+        let pixmap = self.rasterize(svg_text, cfg)?;
+        pixmap
+            .encode_png()
+            .map_err(|e| RenderError::EncodePng(Box::new(e)))
+    }
+
+    /// Shared SVG-parse + resvg-rasterize stage used by
+    /// both [`Self::render_to_bmp`] and
+    /// [`Self::render_to_png`]. Returns the raw RGBA
+    /// pixmap before any palette reduction.
+    fn rasterize(
+        &self,
+        svg_text: &str,
+        cfg: &RenderConfig,
+    ) -> Result<resvg::tiny_skia::Pixmap, RenderError> {
         let tree = usvg::Tree::from_str(svg_text, &self.options)
             .map_err(|e| RenderError::ParseSvg(e.to_string()))?;
 
@@ -286,10 +346,7 @@ impl Renderer {
         let transform =
             resvg::tiny_skia::Transform::from_scale(scale_x, scale_y);
         resvg::render(&tree, transform, &mut pixmap.as_mut());
-
-        let grayscale = rgba_to_luma(pixmap.data());
-        let bits = dither::floyd_steinberg(&grayscale, cfg.width, cfg.height);
-        Ok(bmp::encode_1bit_bmp(&bits, cfg.width, cfg.height))
+        Ok(pixmap)
     }
 }
 

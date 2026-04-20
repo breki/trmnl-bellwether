@@ -377,17 +377,31 @@ async fn tick_once_renders_plausible_trmnl_og_bmp() {
     );
 }
 
-/// Regenerate `target/dashboard-sample.bmp` for eyeball
+/// Regenerate dashboard preview artefacts for eyeball
 /// inspection during layout work. Marked `#[ignore]` so
-/// it doesn't run by default — `cargo xtask test
-/// generate_dashboard_sample_bmp -- --ignored` invokes
-/// it on demand. Renders from the same rich snapshot
-/// the end-to-end test uses, so the image is
-/// representative of what the production pipeline
-/// produces.
+/// it doesn't run by default — `cargo xtask preview`
+/// invokes it on demand and serves the results.
+///
+/// Writes three files next to each other in the
+/// **workspace** `target/`:
+///
+/// - `dashboard-sample.svg` — raw SVG the renderer
+///   consumes, useful for inspecting the author-space
+///   layout without any rasterisation.
+/// - `dashboard-sample.png` — `resvg` raster at the
+///   configured resolution, before any dithering.
+///   Shows what the renderer saw; any visual issue
+///   present here is an SVG or resvg bug.
+/// - `dashboard-sample.bmp` — final 1-bit output sent
+///   to the TRMNL. Differences from the PNG are the
+///   dither contribution in isolation.
+///
+/// The snapshot is the same `rich_snapshot_at` the
+/// end-to-end test uses, so the outputs match what the
+/// production pipeline would produce at that moment.
 #[tokio::test]
-#[ignore = "manual tool: writes target/dashboard-sample.bmp for eyeball"]
-async fn generate_dashboard_sample_bmp() {
+#[ignore = "manual tool: writes target/dashboard-sample.{svg,png,bmp}"]
+async fn generate_dashboard_sample() {
     let now = Utc::now();
     let start = now + ChronoDuration::minutes(30);
     let cfg = trmnl_og_render_cfg();
@@ -401,16 +415,27 @@ async fn generate_dashboard_sample_bmp() {
     let snapshot = rich_snapshot_at(start);
     let model = dashboard::build_model(&snapshot, ctx);
     let svg = dashboard::build_svg(&model, now_local);
-    let bmp = Renderer::with_default_fonts()
-        .render_to_bmp(&svg, &cfg)
-        .expect("render");
-    let out = std::env::current_dir()
-        .expect("cwd")
-        .join("target")
-        .join("dashboard-sample.bmp");
-    std::fs::create_dir_all(out.parent().unwrap()).unwrap();
-    std::fs::write(&out, &bmp).unwrap();
-    eprintln!("wrote {} ({} bytes)", out.display(), bmp.len());
+    let renderer = Renderer::with_default_fonts();
+    let png = renderer.render_to_png(&svg, &cfg).expect("render png");
+    let bmp = renderer.render_to_bmp(&svg, &cfg).expect("render bmp");
+
+    // CARGO_MANIFEST_DIR points at the crate root; jump
+    // two levels to reach the workspace target/ so all
+    // preview artefacts live in one place regardless of
+    // which crate the test was invoked from.
+    let target = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target");
+    std::fs::create_dir_all(&target).unwrap();
+    let write = |name: &str, bytes: &[u8]| {
+        let out = target.join(name);
+        std::fs::write(&out, bytes).unwrap();
+        eprintln!("wrote {} ({} bytes)", out.display(), bytes.len());
+    };
+    write("dashboard-sample.svg", svg.as_bytes());
+    write("dashboard-sample.png", &png);
+    write("dashboard-sample.bmp", &bmp);
 }
 
 type CapturedPublish = (String, Vec<u8>);

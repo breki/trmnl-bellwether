@@ -12,6 +12,18 @@ and this project adheres to
 
 ### Added
 
+- `cargo xtask preview` — regenerates the sample
+  dashboard and serves a three-panel HTML viewer
+  (raw SVG + resvg pre-dither PNG + final 1-bit BMP)
+  on `localhost:8123`, so layout and icon changes can
+  be compared visually at each rendering stage
+  without poking at the dev server or TRMNL device.
+  `--port N` and `--open` flags available.
+- `Renderer::render_to_png` — emits the RGBA raster
+  before Floyd–Steinberg dithering, for preview
+  tooling that needs to isolate rasteriser vs. dither
+  regressions. Ignores `cfg.bit_depth` (PNG is always
+  8-bit RGBA).
 - Atomic weather widgets: `weather-icon`, `temp-now`,
   `condition`, `feels-like`, `day-name`, `temp-high`,
   `temp-low`. Weather-domain widgets take a `day`

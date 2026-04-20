@@ -5,6 +5,38 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-20 (feat — v0.19.0 xtask preview + pre-dither PNG render)
+
+### RT-A — Preview server exposed the entire workspace `target/` directory
+**Category:** Security / information disclosure
+**Description:** The first cut of `xtask preview` served `workspace_target_dir()` as an unrestricted document root. Any file reachable under `target/` — debug binaries with potentially-baked-in secrets via `include_str!`, coverage reports with code snippets, build-script outputs — was fetchable over HTTP while the preview ran. Binding to loopback did not help against malicious local processes (VS Code extensions, devcontainers, npm postinstall scripts on the same host) that could simply `fetch('http://127.0.0.1:8123/debug/bellwether-web')`.
+**Fix:** Replaced the directory root with a 4-entry filename allowlist (`preview-index.html`, `dashboard-sample.{svg,png,bmp}`) expressed as a `match` in `allowed_mime`. Non-allowed URLs short-circuit to 404 before any filesystem touch, eliminating both the exposure and the previous canonicalize+`starts_with` path-traversal guard as redundant. `xtask/src/preview.rs`.
+
+### RT-B — `std::fs::read` loaded entire file into xtask memory
+**Category:** Correctness / DoS (subsumed by RT-A)
+**Description:** With `target/` as document root, a single GET for a multi-hundred-MB debug binary would pull the whole file into xtask RAM before responding.
+**Fix:** Eliminated by the RT-A allowlist — only three small artefact files (SVG ~13 KB, PNG ~100 KB, BMP ~48 KB) plus the inline HTML template are reachable. `xtask/src/preview.rs`.
+
+### RT-C — `--open` fired browser before server was ready
+**Category:** Correctness / spec violation
+**Description:** `open_browser(&url)` ran before `Server::http(...)` bound the listener, racing the browser's GET against socket readiness and producing intermittent `ECONNREFUSED` contrary to the documented "once the server is ready" contract on `XCommand::Preview.open`.
+**Fix:** Inlined `serve()` into `preview()`, bound `Server::http` first, then printed the URL, then invoked `open_browser`, then entered the request loop. `xtask/src/preview.rs`.
+
+### RT-D — `cmd /C start "" <url>` latent command-injection trap
+**Category:** Security (latent)
+**Description:** `url` is format-constructed from a `u16` port today, so cmd.exe metacharacters can't sneak in — but `Command::args`'s Rust-side escaping targets `CreateProcessW`, which `cmd /C start` then re-parses. A future refactor threading user-controlled text (filename, config value) into `url` would silently become a command-injection sink without the cmd.exe quirk being obvious.
+**Fix:** Added an explicit `SAFETY-BY-CONTRACT` comment on the Windows arm of `open_browser` pinning the numeric-port-only invariant and naming the escape alternatives (`ShellExecuteW` via the `windows` crate, or `rundll32 url.dll,FileProtocolHandler`). `xtask/src/preview.rs`.
+
+### RT-E — `127.0.0.1` bind advertised as `localhost` URL
+**Category:** Correctness / UX
+**Description:** Server bound IPv4 loopback only; printed URL said `localhost`. On hosts that resolve `localhost` → `::1` first (some Windows setups, Linux with `/etc/hosts` ordering), browsers hit the IPv6 loopback, time out, then fall back to IPv4 with a delay.
+**Fix:** Changed the printed URL to `http://127.0.0.1:{port}/...` to match the bind address exactly. `xtask/src/preview.rs`.
+
+### RT-F — `cargo test` substring filter matched too broadly
+**Category:** Correctness / robustness
+**Description:** `cargo test generate_dashboard_sample` uses substring matching by default. A future `#[ignore]`d test named e.g. `generate_dashboard_sample_v2` would run alongside, silently doubling the work done per preview invocation.
+**Fix:** Passed `--exact` with the fully-qualified `publish::tests::generate_dashboard_sample` path. `xtask/src/preview.rs`.
+
 ## 2026-04-19 (feat — v0.17.0 atomic widgets)
 
 ### RT-A — `fit_font_px` could silently render unreadable glyphs

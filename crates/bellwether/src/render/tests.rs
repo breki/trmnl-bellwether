@@ -170,6 +170,64 @@ fn rejects_svg_that_would_require_excessive_scale() {
     assert!(matches!(err, RenderError::InvalidScale { .. }));
 }
 
+/// First 8 bytes of every PNG file — checked in tests
+/// that want to confirm PNG-ness without pulling in a
+/// decoder.
+const PNG_MAGIC: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+
+#[test]
+fn render_to_png_produces_valid_png_at_requested_dimensions() {
+    // Parses the PNG magic + IHDR chunk directly rather
+    // than pulling in a png decoder: the point is to
+    // prove that the pre-dither `render_to_png` emits a
+    // file that browsers will actually accept, without
+    // coupling this test to a specific decoder's quirks.
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
+             width="40" height="20" viewBox="0 0 40 20">
+          <rect width="40" height="20" fill="black"/>
+        </svg>"#;
+    let cfg = RenderConfig {
+        width: 40,
+        height: 20,
+        ..Default::default()
+    };
+    let png = Renderer::new().render_to_png(svg, &cfg).unwrap();
+    assert_eq!(&png[..8], &PNG_MAGIC, "PNG signature mismatch");
+    // IHDR starts at offset 8: 4-byte length, 4-byte
+    // "IHDR", then 4+4 big-endian width/height.
+    assert_eq!(&png[12..16], b"IHDR");
+    let width = u32::from_be_bytes([png[16], png[17], png[18], png[19]]);
+    let height = u32::from_be_bytes([png[20], png[21], png[22], png[23]]);
+    assert_eq!((width, height), (40, 20));
+}
+
+#[test]
+fn render_to_png_rejects_non_one_bit_depth_symmetrically_with_bmp() {
+    // Both public render methods take the same
+    // `RenderConfig`; silently ignoring `bit_depth` in
+    // one and erroring in the other would be a
+    // footgun. Until the 4-bit preview path is
+    // implemented, the two methods reject the same
+    // inputs.
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg"
+             width="16" height="8" viewBox="0 0 16 8">
+          <rect width="16" height="8" fill="white"/>
+        </svg>"#;
+    let cfg = RenderConfig {
+        width: 16,
+        height: 8,
+        bit_depth: BitDepth::Four,
+        ..Default::default()
+    };
+    let err = Renderer::new().render_to_png(svg, &cfg).unwrap_err();
+    assert!(matches!(
+        err,
+        RenderError::UnsupportedBitDepth {
+            depth: BitDepth::Four
+        }
+    ));
+}
+
 #[test]
 fn ignores_external_file_references_in_svg() {
     // Defense-in-depth: `raster-images` is off and usvg's

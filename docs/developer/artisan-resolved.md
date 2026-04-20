@@ -6,6 +6,33 @@ findings.
 
 ---
 
+## 2026-04-20 (feat — v0.19.0 xtask preview + pre-dither PNG render)
+
+### AQ-A — `RenderError::EncodePng(String)` docstring justified by a false parallel
+**Category:** Error handling / chain preservation
+**Description:** The first cut stringified `tiny_skia`'s PNG-encoder error "for the same reason `ParseSvg` does", but the parallel isn't load-bearing — `usvg::Error` is a rich domain enum (where stringifying trades match-ability for version stability); `tiny_skia`'s encoder error is a narrow IO-ish failure with no call-site value in matching but real value in chaining. Stringifying broke `Error::source()` chaining, which the `anyhow::Error::root_cause`/`{e:#}` paths in `deploy*` xtasks rely on.
+**Fix:** Changed `EncodePng(String)` to `EncodePng(#[source] Box<dyn std::error::Error + Send + Sync>)`. Preserves the `Error::source()` chain without leaking the concrete `tiny_skia` / `png` crate version through `Display` — the same pattern `OpenMeteoError::Http` already uses. Updated the docstring to describe the actual rationale. `crates/bellwether/src/render/mod.rs`.
+
+### AQ-B — `PreviewOptions` struct added no value for two primitive fields
+**Category:** API design / over-engineering
+**Description:** `PreviewOptions { port: u16, open: bool }` existed purely to group two CLI args that had no independent semantics, were constructed once at the xtask boundary, and were immediately destructured in the body. Either `Copy` or `Clone` derives trigger different clippy complaints (no-useful-Copy vs. pass-by-value), and growing the struct later (e.g. a `PathBuf`) would silently break any assumed Copy-ability.
+**Fix:** Eliminated the struct. `preview(port: u16, open: bool)` now takes the two fields directly; the CLI destructures `XCommand::Preview { port, open }` in `main.rs` and forwards them. Two fewer types to reason about. `xtask/src/preview.rs`, `xtask/src/main.rs`.
+
+### AQ-C — `workspace_target_dir` used `serde_json::Value` indexing where a typed struct was cleaner
+**Category:** Type safety / stringly-typed boundaries
+**Description:** `serde_json::from_slice::<Value>(...)` followed by `json["target_directory"].as_str().ok_or_else(...)` is an untyped walk where a 1-field typed struct would colocate field name and type in one place, catching schema drift at the deserialisation boundary rather than two layers deeper in a stringly-typed chain.
+**Fix:** Added `#[derive(serde::Deserialize)] struct CargoMetadata { target_directory: PathBuf }` and parsed directly into it. Added `serde = { version = "1", features = ["derive"] }` to `xtask/Cargo.toml`. Net -3 lines in the function. `xtask/src/preview.rs`.
+
+### AQ-D — Hardcoded test-name string created a silent stale-artefact failure mode
+**Category:** Type safety / brittleness
+**Description:** `cargo test generate_dashboard_sample` uses a string filter; if the test is ever renamed, `cargo test` matches zero tests and exits 0 (success). The preview would then serve whatever stale artefacts already happened to exist in `target/` — appearing to work, actually showing yesterday's dashboard, no warning anywhere.
+**Fix:** Captured `SystemTime::now()` before the cargo-test call; after it returns, stat each of the three artefact files and fail if any `modified()` mtime predates the start. Any name drift surfaces as an explicit error with the offending path and a hint pointing at the likely cause. `xtask/src/preview.rs`.
+
+### AQ-E — `render_to_png` silently ignored `cfg.bit_depth` while `render_to_bmp` errored
+**Category:** API consistency / type-carried contracts
+**Description:** Both public render methods take `&RenderConfig`, but the first cut of `render_to_png` honoured only `{width, height}` and swallowed `cfg.bit_depth` — while `render_to_bmp` rejected anything other than `BitDepth::One` with `UnsupportedBitDepth`. A caller who set `cfg.bit_depth = BitDepth::Four` intending a 4-bit grayscale preview would get an 8-bit RGBA PNG with no feedback. The type system wasn't carrying the contract.
+**Fix:** Made `render_to_png` reject non-`One` bit depths symmetrically with `render_to_bmp` — same error, same pre-condition check. Future 4-bit PNG support (for TRMNL X) will relax the check on both methods together. Updated the docstring to describe the actual contract; flipped the existing `render_to_png_ignores_bit_depth_config` test to `render_to_png_rejects_non_one_bit_depth_symmetrically_with_bmp`. `crates/bellwether/src/render/{mod,tests}.rs`.
+
 ## 2026-04-20 (feat — v0.18.0 Source Sans 3 font swap)
 
 ### AQ-124 — Font family string and weight were magic literals disconnected from the font bytes

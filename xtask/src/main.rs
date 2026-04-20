@@ -8,6 +8,7 @@ mod deploy_setup;
 mod dupes;
 mod fmt_cmd;
 mod helpers;
+mod preview;
 mod test_cmd;
 mod validate;
 
@@ -53,6 +54,18 @@ enum XCommand {
     DeploySetup,
     /// Build and deploy to the `RPi`
     Deploy,
+    /// Regenerate the sample dashboard and serve an
+    /// HTML preview (SVG + pre-dither PNG + final BMP)
+    /// on a local HTTP port.
+    Preview {
+        /// TCP port the preview server listens on.
+        #[arg(long, default_value_t = 8123)]
+        port: u16,
+        /// Launch the system's default browser at the
+        /// preview URL once the server is ready.
+        #[arg(long)]
+        open: bool,
+    },
 }
 
 fn main() {
@@ -78,6 +91,7 @@ fn main() {
             deploy_setup::deploy_setup().map_err(|e| format!("{e:#}"))
         }
         XCommand::Deploy => deploy::deploy().map_err(|e| format!("{e:#}")),
+        XCommand::Preview { port, open } => preview::preview(port, open),
     };
 
     if let Err(e) = result {

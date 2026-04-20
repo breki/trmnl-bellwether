@@ -1,35 +1,29 @@
 # Handoff to the next agent
 
-Current as of 2026-04-17, version **0.6.0**. You are
-the next agent — read this once end-to-end before
-touching anything. Previous handoff was written by the
-scaffolding agent and is now superseded; the scaffold
-is long done.
-
-> **2026-04-19 update:** the Windy Point Forecast
-> provider was replaced with Open-Meteo (free,
-> keyless). Read
-> `docs/developer/weather-provider-migration.md` for
-> the full PR sequence. The sections below that
-> reference `clients::windy`, `windy_key.txt`, and
-> Windy API keys describe an earlier state; the active
-> provider module is now `clients::open_meteo` and
-> there is no on-disk secret.
+Current as of 2026-04-20, version **0.19.0** (commit
+`baddff9`). You are the next agent — read this once
+end-to-end before touching anything.
 
 ## What's built
 
-Six feature commits after the scaffold:
+The project is well past its scaffold. Recent
+feature versions:
 
-| Version | PR | What |
-|---------|----|------|
-| 0.2.0 | PR 1 | Config skeleton (TOML loader, `api_key_file` indirection, `Config::load`) |
-| 0.3.0 | PR 2 | Windy Point Forecast client (`clients::windy`) |
-| 0.4.0 | PR 3a | SVG → 1-bit BMP renderer (`render::Renderer`) |
-| 0.5.0 | PR 3b | TRMNL BYOS endpoints (`/api/display`, `/api/log`, `/images/:filename`) |
-| 0.6.0 | PR 3c | Fetch → render → publish loop (`publish::PublishLoop`) under a `supervise` wrapper |
+| Version | What |
+|---------|------|
+| 0.6.0 | Publish loop (fetch → render → publish) under `supervise` |
+| 0.7.0 | Windy → Open-Meteo migration (see `weather-provider-migration.md`) |
+| 0.13.0 | Dense 5-band dashboard layout matching the mockup |
+| 0.14.0 | Configurable widget layout via `layout.toml` |
+| 0.15.0 | `[dashboard]` layout folded into main config |
+| 0.16.0 | Svelte frontend dropped; hand-rolled Rust landing page at `/` |
+| 0.16.1 | Landing-page preview renders the latest dashboard |
+| 0.17.0 | Atomic widgets (`weather-icon`, `temp-now`, etc.) |
+| 0.18.0 | Source Sans 3 Semibold as bundled font |
+| 0.19.0 | `cargo xtask preview` + `Renderer::render_to_png` |
 
-Every commit went through `/commit` with red-team +
-artisan reviews; ~80 findings addressed and documented
+Every commit goes through `/commit` with red-team +
+artisan reviews; ~115 findings resolved and documented
 in `redteam-resolved.md` / `artisan-resolved.md`. The
 non-obvious design decisions live there, not in code
 comments — read them before changing the design.
@@ -38,141 +32,286 @@ comments — read them before changing the design.
 
 ```bash
 cargo run -p bellwether-web -- --config config.toml
+# open http://localhost:3100
 ```
 
-- Loads TOML config (validated: lat/lon ranges, render
-  dims ≤ 4096, refresh rate ∈ 1..=86400).
-- Reads Windy API key from `windy_key.txt`.
-- Seeds the image store with a geometric placeholder
-  BMP.
-- Spawns the publish loop under
-  `bellwether::publish::supervise`. Every
-  `default_refresh_rate_s` the loop fetches Windy,
-  renders a placeholder dashboard (bar scaled by
-  current temperature; X overlay when no data), and
-  puts the BMP into the `ImageStore`.
-- Axum serves `/api/display`, `/api/log`,
-  `/images/{filename}`. Optional `Access-Token`
-  middleware gated on `BELLWETHER_ACCESS_TOKEN`.
+Weather provider is **Open-Meteo** (free, keyless). No
+on-disk secret file. The landing page at `/` lists
+endpoints and embeds the latest rendered dashboard via
+`/preview.bmp` (unauthenticated, intended LAN-only
+use — see RT-113 in `redteam-log.md` for the open
+decision).
 
-`--dev` mode skips the publish loop and serves only
-the placeholder — useful for frontend work without a
-Windy key.
+`--dev` runs without a config file; the publish loop
+is skipped and the image store is seeded with the
+placeholder BMP only. Good for iterating on the
+landing page or xtask tooling.
 
-Default port is 3100 (was 3000 originally; changed
-because operator's 3000 was taken).
+## What's immediately in flight (uncommitted WIP)
 
-## Open decisions you need the user to make
+As of this handoff, these files are modified or
+untracked in the working tree and **belong to the
+next PR, not this one**:
 
-The user hasn't confirmed these; they may block later
-PRs.
+- `crates/bellwether/src/dashboard/icons.rs` — replaced
+  hand-rolled 4-icon SVG primitives with `include_str!`
+  of upstream Weather Icons SVG files.
+- `crates/bellwether/src/dashboard/svg/mod.rs` — the
+  icon renderer now emits `<svg x y width height>…</svg>`
+  wrapping the bundled SVG document, instead of
+  `<g transform="translate scale">` wrapping a
+  48-user-unit fragment.
+- `crates/bellwether/assets/icons/weather-icons/`
+  (untracked) — 4 SVG files downloaded verbatim from
+  https://github.com/erikflowers/weather-icons
+  (SIL OFL 1.1): `wi-day-sunny.svg`, `wi-day-cloudy.svg`,
+  `wi-cloudy.svg`, `wi-rain.svg`.
 
-1. **Device BYOS status.** Is the TRMNL device at
-   `malina` already reconfigured to point at the
-   bellwether server, or still polling `trmnl.com`?
-   BYOS needs the device's server URL to be flashed
-   or configured. Verify before PR 3d's real
-   dashboard goes live — otherwise you're rendering
-   into a store no device ever reads.
-2. **Dashboard font choice.** PR 3d needs at least
-   one bundled font for text rendering. Options: m6x11
-   (permissively licensed, ~6KB), Geist Mono (SIL OFL,
-   larger but nice), or a pixel font crafted for
-   e-ink. The user has preferences — ask with
-   `AskUserQuestion` showing 2-3 options before
-   bundling anything.
-3. **Dashboard layout.** What should the dashboard
-   actually show? Candidates: current conditions +
-   3-day forecast, hourly sparklines, astro info
-   (sunrise/sunset), HA entity list. Sketch a
-   wireframe before rendering.
-4. **Production deployment.** Is the plan a
-   systemd unit on `malina`, a Docker container, or
-   something else? Affects the "deployment" section
-   a future PR will need.
+Three stray `.png` screenshots at the workspace root
+(`dashboard-weather-icons.png`, `preview-dashboard-vector.png`,
+`xtask-preview-three-panel.png`) and a `.playwright-mcp/`
+directory are scratch artefacts from the icon
+exploration — either delete them or gitignore them.
 
-## Recommended next PRs
+## Recommended next PR sequence
 
-In rough order of value / unblock-ratio:
+The user approved this plan in conversation. Two-tier
+fidelity, per-widget-instance selector, incremental
+icon design. All four PRs below together replace the
+current 4-variant `Condition` enum with a WMO-backed
+two-tier model. **Each PR is independently mergeable
+and visually verifiable via `cargo xtask preview`.**
 
-1. **PR 3d — real dashboard layout.** Biggest
-   visible win. Pick a font, design a layout, replace
-   `build_dashboard_svg` placeholder. Extends the
-   `ForecastRenderer` trait boundary (AQ-065 TODO in
-   publish/mod.rs — if a second sink consumer
-   appears, promote `ImageSink` to a neutral
-   `crate::sink` module).
-2. **PR 3e — telemetry persistence + `/api/status`.**
-   Currently `/api/log` drops everything after
-   logging. Persist in `TrmnlState` → expose via
-   `/api/status` so the operator sees device health
-   at a glance. Enables refresh-rate adaptation
-   later. Tracked in `TODO.md` → "PR 3d / later".
-3. **PR 3f — Home Assistant client.** Mirrors the
-   Windy client. Spike §5 settled on long-lived
-   access token via `token_file`. Use `wiremock`
-   for tests (same pattern as `clients::windy`).
-4. **PR 3g — real-device smoke test.** End-to-end
-   validation against the actual TRMNL at `malina`.
-   Depends on open decision #1.
-5. **CI hardening.** `cargo audit` + `cargo deny`
-   in the xtask pipeline. Queued as a chore in
-   `TODO.md`.
+### PR 1 — Plumb raw `weather_code` end-to-end (data only, no visual change)
+
+Append `weather_code` to Open-Meteo's `HOURLY_VARIABLES`
+(currently `crates/bellwether/src/clients/open_meteo/mod.rs:78-79`,
+7 fields, no `weather_code`). Add `weather_code: Vec<Option<u8>>`
+to `WeatherSnapshotBuilder` and `WeatherSnapshot`;
+extend the length-validation tuple at
+`weather/mod.rs:114`; narrow the incoming JSON number
+to `u8` (values outside 0..=99 → `None`, non-integers
+→ `None`).
+
+Display layer unchanged in this PR — the existing
+cloud+precip classifier still drives all icons. This
+PR is pure plumbing.
+
+**TDD order:** wiremock test with canned JSON carrying
+`weather_code` → `RawHourly` struct field → `pick_series`
+adapter → accessor + round-trip test. Validate green
+when done.
+
+### PR 2 — Expand display taxonomy to two tiers
+
+Introduce two types in `dashboard/classify.rs`:
+
+- `WmoCode` — exhaustive enum with one variant per
+  WMO 4677 code (~27 variants). `TryFrom<u8>`
+  converts raw code values; out-of-table codes return
+  `None`. Store on `WeatherSnapshot` as
+  `Vec<Option<WmoCode>>` (narrow from `u8` at parse).
+- `ConditionCategory` — 9-variant coarse view:
+  `Clear`, `PartlyCloudy`, `Cloudy`, `Fog`, `Drizzle`,
+  `Rain`, `Snow`, `Thunderstorm`, `Unknown`. Never
+  stored; always computed via
+  `WmoCode::coarsen() -> ConditionCategory`.
+
+Fallback classifier: when `weather_code` is `None`
+(provider gap, older data), call the existing
+cloud+precip logic — but it produces a
+`ConditionCategory` directly, because numeric signals
+aren't precise enough to fabricate a specific WMO
+code. Document this boundary in the module doc.
+
+**Coarsen mapping** (locked in conversation — ship as
+part of PR 2 tests):
+
+| `WmoCode`s | `ConditionCategory` |
+|---|---|
+| Clear | Clear |
+| MainlyClear, PartlyCloudy | PartlyCloudy |
+| Overcast | Cloudy |
+| Fog, RimeFog | Fog |
+| DrizzleLight/Moderate/Dense, FreezingDrizzleLight/Dense | Drizzle |
+| RainSlight/Moderate/Heavy, FreezingRainLight/Heavy, RainShowersSlight/Moderate/Violent | Rain |
+| SnowSlight/Moderate/Heavy, SnowGrains, SnowShowersSlight/Heavy | Snow |
+| Thunderstorm, ThunderstormHailSlight/Heavy | Thunderstorm |
+
+### PR 3 — Per-instance `fidelity` widget setting + icon dispatch
+
+Add `fidelity: Fidelity { Simple, Detailed }` (default
+`Simple`) as an **optional per-widget-instance** field
+in `layout.toml`. The user specifically chose
+per-instance over per-kind — so the same
+`weather-icon` widget can render detailed in the
+today-band and simple in the forecast tiles:
+
+```toml
+{ size = 150, widget = "weather-icon", day = "today",
+  fidelity = "detailed" }
+{ flex = 1,  widget = "weather-icon", day = 0 }
+# ^ defaults to "simple"
+```
+
+Two icon lookup functions with a **graceful fallback**
+so PR 3 is mergeable before any detailed icons exist:
+
+```rust
+pub fn icon_for_category(c: ConditionCategory)
+    -> &'static str;  // 9 icons, mandatory
+
+pub fn icon_for_wmo(code: WmoCode) -> &'static str {
+    match code {
+        // Specialized arms added here in PR 4+:
+        // WmoCode::Fog => FOG,
+        // WmoCode::ThunderstormHailHeavy => HAIL_THUNDER,
+        other => icon_for_category(other.coarsen()),
+    }
+}
+```
+
+Replace the current 4 hand-rolled-but-now-Weather-Icons
+constants with the 9 category icons from Weather Icons:
+
+| `ConditionCategory` | Weather Icons filename |
+|---|---|
+| Clear | wi-day-sunny.svg |
+| PartlyCloudy | wi-day-cloudy.svg |
+| Cloudy | wi-cloudy.svg |
+| Fog | wi-fog.svg |
+| Drizzle | wi-sprinkle.svg |
+| Rain | wi-rain.svg |
+| Snow | wi-snow.svg |
+| Thunderstorm | wi-thunderstorm.svg |
+| Unknown | wi-na.svg |
+
+Existing `layout.toml` deserializes unchanged (serde
+default). Assert this with a test.
+
+### PR 4+ — Draw/bundle specialized detailed icons (one arm at a time)
+
+Each PR adds one or more `wi-*.svg` files plus the
+matching `icon_for_wmo` arm. Suggested priority order
+(based on visual impact and dither-legibility
+expected):
+
+1. `Fog`, `Thunderstorm`, `ThunderstormHailHeavy` —
+   dramatic weather deserves a distinct glyph before
+   intensity splits.
+2. Snow variants (`SnowSlight/Moderate/Heavy`).
+3. Rain intensities (`RainSlight/Moderate/Heavy`).
+4. Freezing-precipitation variants.
+
+No PR depends on a later one — the `coarsen()`
+fallback ensures every WMO code has a showable icon
+from day one.
+
+## Open decisions / caveats for the next agent
+
+1. **Weather Icons LICENSE file needs bundling.** I
+   tried to download `LICENSE` from
+   `raw.githubusercontent.com/erikflowers/weather-icons/master/LICENSE`
+   and got a 404. The upstream project uses SIL OFL
+   1.1 for the icons per its README, but the exact
+   file path at the tag we're pinned to needs to be
+   found. Look under `font/`, `LICENSE.md`, or
+   `OFL.txt`. Bundle into
+   `crates/bellwether/assets/icons/weather-icons/LICENSE`
+   and link from `docs/credits.md` (new file).
+2. **Dither verification on physical e-ink still
+   pending.** `cargo xtask preview` shows vector,
+   pre-dither PNG, and 1-bit BMP side-by-side, but no
+   one has confirmed the Weather Icons curves look
+   acceptable on actual TRMNL hardware yet. Deploy to
+   `malina` before declaring the icon PR merged; if
+   curves shimmer, Meteocons
+   (https://bas.dev/work/meteocons) is a
+   heavier-fill alternative using the same SVG
+   integration pattern.
+3. **Coverage impact of the 27-variant `WmoCode` enum.**
+   Exhaustive-match tests over every variant avoid
+   the coverage trap — write one per mapping
+   (`TryFrom<u8>` round-trip, `coarsen()`
+   correctness). The existing
+   `each_icon_covers_every_condition_variant` test at
+   `dashboard/icons.rs` is the pattern to follow.
+4. **Sample model needs fidelity coverage.** The
+   `sample_model()` in
+   `dashboard/svg/tests.rs` + the rich snapshot
+   behind `generate_dashboard_sample` currently
+   exercise 4 conditions. After PR 2, extend to cover
+   every `ConditionCategory`; after PR 3 add a
+   `fidelity = "detailed"` instance in the preview
+   layout so `cargo xtask preview` renders both
+   tiers.
 
 ## User working style
 
-See `CLAUDE.md` for the full list. Two guardrails
-learned from past corrections that aren't there yet:
+Hard rules are in `CLAUDE.md`. Soft preferences learned
+from this session:
 
-- **Don't stash intermediate files in `/tmp`.** On
-  Windows it maps to `%AppData%\Local\Temp\` — outside
-  the workspace, invisible to the operator. When
-  handing large output to a subagent, have the
-  subagent run the command itself, or write to
-  `target/…` (git-ignored).
-- **Use the six-field finding format.** When
-  presenting review findings, match the `/commit`
-  skill spec: ID, Source, Category, Description,
-  Impact, Suggested fix. Don't compress to prose.
-
-## Memory
-
-Local Claude Code memory may add context on the
-operator's own machine; everywhere else, this file +
-`CLAUDE.md` are the whole picture. Any memory entry
-load-bearing enough that the project depends on it
-should migrate into `CLAUDE.md` or here.
+- **Fix review findings in-PR**, don't defer. When
+  red-team/artisan surface actionable findings, the
+  user consistently chooses fix-in-PR over
+  commit-as-is. Commit v0.19.0 fixed all 11 findings
+  before committing.
+- **Narrate each tool-calling step** in user-visible
+  text — don't rely on the Bash `description`
+  parameter alone. One-liner per logical step,
+  including parallel tool-call groups.
+- **Use `AskUserQuestion` for multi-choice decisions.**
+  The user prefers the structured UI over
+  prose-and-wait when there are 2–4 options with
+  trade-offs.
+- **No `cd` or `git -C <dir>`** — those can't be
+  pre-allowlisted and trigger permission prompts on
+  every call. Always use absolute paths.
+- **Use Windows OpenSSH for ssh/scp.** From Git Bash
+  the bare binaries can't reach the Windows
+  ssh-agent. Use `/c/Windows/System32/OpenSSH/ssh.exe`
+  for deploy operations.
 
 ## Where to find more
 
 - `docs/developer/DIARY.md` — timeline of every
   feature with design rationale.
-- `docs/developer/spike.md` — the original design
-  spike that settled TRMNL protocol choice (BYOS),
-  render stack (`resvg` + hand-rolled BMP),
-  dithering (Floyd–Steinberg), HA auth (long-lived
-  token).
+- `docs/developer/spike.md` — original spike that
+  settled TRMNL protocol (BYOS), render stack (`resvg`
+  + hand-rolled BMP), dithering (Floyd–Steinberg).
+- `docs/developer/weather-provider-migration.md` —
+  Windy → Open-Meteo transition notes.
 - `docs/developer/redteam-resolved.md` +
-  `artisan-resolved.md` — ~80 resolved review
-  findings with resolution notes. The "why" behind
-  most non-obvious decisions.
+  `artisan-resolved.md` — resolved review findings.
+  The "why" behind most non-obvious decisions, in
+  reverse-chronological order.
+- `docs/developer/redteam-log.md` +
+  `artisan-log.md` — open findings. Threshold of
+  10+ triggers a full-codebase review.
 - `docs/developer/template-feedback.md` — upstream
-  rustbase issues discovered while building this.
-  Feeds back via `/template-sync`.
-- `TODO.md` — prioritized next work + backlog +
-  chores.
+  rustbase issues. Feeds back via `/template-sync`.
 - `CHANGELOG.md` — per-version user-visible
   changes.
 - `CLAUDE.md` — hard project conventions.
 
 ## External references
 
-- TRMNL firmware: https://github.com/usetrmnl/firmware
-  (critical reference — `lib/trmnl/src/bmp.cpp`
-  defines the BMP palette ordering we match).
-- TRMNL HA add-on: https://github.com/usetrmnl/trmnl-home-assistant
-- Windy Point Forecast API: https://api.windy.com/point-forecast/docs
-- Home Assistant REST API: https://developers.home-assistant.io/docs/api/rest/
+- TRMNL firmware:
+  https://github.com/usetrmnl/firmware
+  (`lib/trmnl/src/bmp.cpp` defines the BMP palette
+  ordering the renderer matches).
+- Open-Meteo Forecast API:
+  https://open-meteo.com/en/docs
+  (WMO 4677 weather-code table is at the bottom of
+  that page).
+- WMO Code 4677 reference:
+  https://artefacts.ceda.ac.uk/badc_datadocs/surface/code.html
+- Weather Icons (Erik Flowers):
+  https://erikflowers.github.io/weather-icons/
+- Meteocons (Bas Milius, backup option):
+  https://bas.dev/work/meteocons
+- Home Assistant REST API:
+  https://developers.home-assistant.io/docs/api/rest/
 - rustbase template:
   https://github.com/breki/rustbase
 

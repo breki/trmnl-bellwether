@@ -366,6 +366,53 @@ label = "H"
 }
 
 #[test]
+fn weather_icon_fidelity_detailed_differs_from_simple_for_specialised_code() {
+    // Deferred from PR 4 and now reachable because
+    // `icon_for_wmo` has at least one specialised arm
+    // (`ThunderstormHailHeavy` → `wi-hail.svg`).
+    //
+    // Contract being locked: "two widgets reading the
+    // same model but differing only in `fidelity`
+    // produce different SVG bytes for a specialised
+    // code." That is exactly what `assert_ne!` on two
+    // single-widget renders checks — nothing more,
+    // nothing less. Previous revisions of this test
+    // pattern-matched on a substring of the hail
+    // glyph's `d` attribute; that coincidentally also
+    // appears in rain/snow/drizzle icons, so the test
+    // was brittle against later PRs specialising those
+    // variants (RT-1/AQ-1/AQ-2).
+    let simple_src = r#"
+canvas = { width = 200, height = 200 }
+widget = "weather-icon"
+day = "today"
+"#;
+    let detailed_src = r#"
+canvas = { width = 200, height = 200 }
+widget = "weather-icon"
+day = "today"
+fidelity = "detailed"
+"#;
+    let simple_layout: super::super::layout::Layout =
+        toml::from_str(simple_src).unwrap();
+    let detailed_layout: super::super::layout::Layout =
+        toml::from_str(detailed_src).unwrap();
+    let mut model = sample_model();
+    if let Some(c) = model.current.as_mut() {
+        c.weather_code = Some(WeatherCode::Wmo(WmoCode::ThunderstormHailHeavy));
+    }
+    let svg_simple =
+        build_svg_with_layout(&simple_layout, &model, noon()).unwrap();
+    let svg_detailed =
+        build_svg_with_layout(&detailed_layout, &model, noon()).unwrap();
+    assert_ne!(
+        svg_simple, svg_detailed,
+        "Fidelity was silently dropped: Simple and Detailed \
+         rendered identically for a specialised code",
+    );
+}
+
+#[test]
 fn format_clock_pads_to_two_digits() {
     let early = NaiveTime::from_hms_opt(6, 9, 0).unwrap();
     assert_eq!(format_clock(early), "06:09");

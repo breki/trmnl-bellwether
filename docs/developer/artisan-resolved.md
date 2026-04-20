@@ -6,6 +6,35 @@ findings.
 
 ---
 
+## 2026-04-20 (feat — v0.23.0 specialised wi-hail glyph for `WmoCode::ThunderstormHailHeavy`)
+
+### AQ-139 — Behavioural test coupled to a non-unique SVG byte pattern
+**Category:** Test fragility
+**Description:** Same root cause as RT-116. Test asserted on `"M4.64,16.9"` substring as the "hail glyph marker"; substring is shared with rain/snow/sprinkle icons. Craftsmanship angle: tests for dispatcher correctness shouldn't reach into upstream asset byte patterns at all — they should assert on the dispatcher's observable contract. `crates/bellwether/src/dashboard/svg/tests.rs`.
+**Fix:** See RT-116. Rewrote to compare two separately rendered single-widget layouts via `assert_ne!` on the full SVG strings. No coupling to any byte-pattern of any upstream asset.
+
+### AQ-140 — `hail_hits == 1` conflated dispatch correctness with layout-render count
+**Category:** Test design
+**Description:** The `assert_eq!(hail_hits, 1)` assertion was meant to catch "both halves rendered the same glyph," but would also fail if the SVG pipeline ever legitimately inlined the icon twice (a `<defs>`/`<use>` sprite optimisation, or a layout duplication test). Test contract ("Simple and Detailed produce different bytes") was better expressed as `assert_ne!` on two separate single-panel renders. `crates/bellwether/src/dashboard/svg/tests.rs`.
+**Fix:** Subsumed by RT-116's rewrite — the new form is exactly the suggested pattern (two single-panel renders, `assert_ne!` on the full output).
+
+### AQ-141 — Specialised-code list in tests was reviewer-enforced rather than compiler-enforced
+**Category:** Test structure / invariants
+**Description:** The dual-test pattern (`icon_for_wmo_falls_back_to_coarsened_category` + `specialised_wmo_arms_diverge_from_the_coarse_category`) relied on the reviewer to keep the hard-coded variant lists in sync with `icon_for_wmo`'s match arms. A PR adding a specialised arm without updating the list silently passed; a PR dropping an arm without updating the specialised list silently failed with a misleading message. `crates/bellwether/src/dashboard/icons.rs`.
+**Fix:** Added `fn dispatch_kind(code: WmoCode) -> DispatchKind { Specialised | Coarsened }` as an exhaustive `match` without a catch-all, sitting in the same test module. New `icon_for_wmo_respects_its_dispatch_classification` test iterates `WmoCode::ALL` and branches on `dispatch_kind`, asserting `assert_ne!` for Specialised and `assert_eq!` for Coarsened. Adding a new `WmoCode` variant is a compile error until it's classified. Removed the now-redundant `specialised_wmo_arms_diverge_from_the_coarse_category` test; the `icon_for_wmo_falls_back_to_coarsened_category` sanity check stays as a human-readable canary.
+
+### AQ-142 — Rust source carried PR-version prose ("HANDOFF PR 5+ order")
+**Category:** Documentation stability
+**Description:** The inline comment on `icon_for_wmo`'s default arm said "new specialised arms land one-per-PR in HANDOFF PR 5+ order" — references a HANDOFF document that already shifts version markers between releases, and ties code comments to an external PR sequence that ages badly. `crates/bellwether/src/dashboard/icons.rs`.
+**Fix:** Replaced with a stable invariant statement: "Add new specialised arms above this catch-all. The `_` keeps the function total while arms are added one at a time; `tests::icon_for_wmo_respects_its_dispatch_classification` exhaustively classifies every `WmoCode` as Specialised or Coarsened, so dropping or adding an arm without updating that match fails at compile time." Points at the forcing-function test rather than at PR-timeline prose.
+
+### AQ-143 — Fallback-test swap removed coverage right where collision risk lives
+**Category:** Test coverage
+**Description:** PR 5's initial form replaced `WmoCode::Thunderstorm` with `WmoCode::Fog` in `icon_for_wmo_falls_back_to_coarsened_category`, on the (incorrect) assumption that bare `Thunderstorm` was somehow compromised by the sibling `ThunderstormHailHeavy` specialisation. In fact, `Thunderstorm` still coarsens cleanly — the swap was unnecessary and removed coverage of the thunderstorm category exactly where the new specialised sibling exists (the highest-risk collision zone for a sibling-pair regression). `crates/bellwether/src/dashboard/icons.rs`.
+**Fix:** Restored `Thunderstorm` alongside `Fog` in the named-code list: `[RainSlight, SnowSlight, Thunderstorm, Fog]`. The canary now explicitly sanity-checks the exact category whose sibling is specialised.
+
+---
+
 ## 2026-04-20 (feat — v0.22.0 thread ConditionCategory through the model + `Option<Fidelity>` + specialised hail icon)
 
 ### AQ-134 — Duplicate classification logic in the render layer

@@ -5,6 +5,15 @@ See [redteam-log.md](redteam-log.md) for open findings.
 
 ---
 
+## 2026-04-20 (feat — v0.23.0 specialised wi-hail glyph for `WmoCode::ThunderstormHailHeavy`)
+
+### RT-116 — Behavioural test's "distinctive" substring was shared by three other bundled icons
+**Category:** Correctness / test fragility
+**Description:** `weather_icon_fidelity_detailed_differs_from_simple_for_specialised_code` in `svg/tests.rs` asserted on the substring `"M4.64,16.9"` as a "distinctive prefix" for `wi-hail.svg`'s root path. The prefix is not unique — `wi-rain.svg`, `wi-snow.svg`, and `wi-sprinkle.svg` all start their root `<path>` with the same 10 bytes (Weather Icons shares the lower-cloud subpath across four glyphs). The test passed today only because the Simple side coincidentally rendered `wi-thunderstorm.svg`, which doesn't share the prefix. As soon as PR 6+ specialised any Rain/Snow/Drizzle variant, the `hail_hits == 1` assertion would misfire — locking a weaker invariant than the comment claimed.
+**Fix:** Rewrote the test to render two separate single-widget layouts (Simple-only vs Detailed-only) and assert `svg_simple != svg_detailed`. That's exactly the dispatcher contract — "Fidelity reaches the icon selection" — with zero coupling to upstream SVG byte patterns. Kills RT-116, AQ-139, and AQ-140 in one rewrite.
+
+---
+
 ## 2026-04-20 (feat — v0.21.0 weather_code plumbing + WMO taxonomy + 9-icon dispatch)
 
 ### RT-114 — `ConditionCategory::Unknown` was unreachable through the documented pipeline

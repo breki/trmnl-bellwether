@@ -70,7 +70,10 @@ edit fails the build before it reaches a release.
 The 9 category icons land as the PR 3 baseline — one
 SVG per [`ConditionCategory`] variant. Detailed
 per-[`WmoCode`] glyphs land incrementally on top of
-this set in PR 4+.
+this set in PR 4+ and are reached only when a
+`weather-icon` widget opts into `fidelity = "detailed"`.
+
+### Category icons (Simple fidelity)
 
 | File | `ConditionCategory` it serves |
 |------|-------------------------------|
@@ -83,6 +86,12 @@ this set in PR 4+.
 | `wi-snow.svg`          | `Snow` |
 | `wi-thunderstorm.svg`  | `Thunderstorm` |
 | `wi-na.svg`            | `Unknown` |
+
+### Detailed-fidelity icons (per `WmoCode`)
+
+| File | `WmoCode` it serves | Coarse fallback |
+|------|---------------------|-----------------|
+| `wi-hail.svg` | `ThunderstormHailHeavy` | `wi-thunderstorm.svg` |
 
 [`ConditionCategory`]: ../../../src/dashboard/classify.rs
 [`WmoCode`]: ../../../src/dashboard/classify.rs

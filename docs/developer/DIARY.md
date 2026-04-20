@@ -7,6 +7,43 @@ reverse chronological order.
 
 ### 2026-04-20
 
+- Bundled `wi-hail.svg` as the first specialised
+  detailed-fidelity glyph (v0.23.0)
+
+    PR 5 of the WMO-icon sequence. Adds one upstream
+    Weather Icons SVG (`wi-hail.svg`, SHA-256 pinned),
+    one `match` arm in `icon_for_wmo` (`WmoCode::ThunderstormHailHeavy
+    → skip_to_svg_root(HAIL_RAW)`), and one README row
+    under a new "Detailed-fidelity icons (per `WmoCode`)"
+    section.
+
+    **Structural tests.** Replaced the PR 4 mirror-pair
+    (`icon_for_wmo_falls_back_to_coarsened_category` +
+    `specialised_wmo_arms_diverge_from_the_coarse_category`)
+    with a single unified
+    `icon_for_wmo_respects_its_dispatch_classification`
+    backed by an exhaustive `fn dispatch_kind(WmoCode)
+    -> {Specialised, Coarsened}`. Adding a new `WmoCode`
+    variant is now a compile error until classified —
+    the reviewer-enforced lists that AQ-3/AQ-141 flagged
+    are gone.
+
+    **Behavioural test** (deferred from PR 4): two
+    single-widget layouts rendered independently under
+    Simple vs Detailed, compared byte-wise with
+    `assert_ne!`. No coupling to any upstream SVG byte
+    pattern — the original form used a `"M4.64,16.9"`
+    substring that turned out to be shared with
+    rain/snow/sprinkle glyphs (RT-116).
+
+    **Six review findings fixed in-PR.** RT-116
+    (fragile substring) + AQ-139/140 (same issue from
+    the craftsmanship angle) all resolved by the
+    test rewrite. AQ-141 (exhaustive dispatch_kind
+    match), AQ-142 (stabilised inline comment), AQ-143
+    (restored `Thunderstorm` to the fallback canary
+    test) landed as separate targeted fixes.
+
 - Threaded `ConditionCategory` through the presentation
   model + reintroduced `Option<Fidelity>` on the
   weather-icon widget (v0.22.0)

@@ -12,16 +12,20 @@ and this project adheres to
 
 ### Added
 
+- `wi-hail.svg` (Weather Icons by Erik Flowers) bundled
+  as the first specialised detailed-fidelity glyph.
+  `WmoCode::ThunderstormHailHeavy` now dispatches to
+  this icon under `fidelity = "detailed"`, visually
+  separating "heavy hail" from the base thunderstorm
+  icon. All other codes still coarsen through their
+  category. SHA-256 pinned and byte-identical to
+  upstream.
 - `Fidelity` enum (`Simple` / `Detailed`) plus an
   `Option<Fidelity>` field on the `weather-icon`
   widget's `layout.toml` entry. `Simple` (or the field
   omitted) keeps the existing nine-way coarse dispatch;
   `Detailed` opts into specialised WMO-specific glyphs
-  when `icon_for_wmo` has a matching arm. No
-  specialised arms are bundled in this release — the
-  first one lands in the next PR — so `Detailed`
-  currently coarsens identically to `Simple` for all
-  codes, but the plumbing is reachable end-to-end.
+  when `icon_for_wmo` has a matching arm.
 - `ConditionCategory::label` — human-readable label for
   the condition widget, now the single source of truth
   for the word next to the big temperature ("Sunny",

@@ -69,6 +69,13 @@ const SNOW_RAW: &str =
 const THUNDERSTORM_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-thunderstorm.svg");
 
+/// Upstream Weather Icons `wi-hail` — specialised
+/// detailed glyph for [`WmoCode::ThunderstormHailHeavy`].
+/// Coarsens through [`ConditionCategory::Thunderstorm`]
+/// at [`Fidelity::Simple`](super::layout::Fidelity::Simple).
+const HAIL_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-hail.svg");
+
 /// Upstream Weather Icons `wi-na` — "not available"
 /// glyph used for [`ConditionCategory::Unknown`] when
 /// the provider returned a WMO code outside the
@@ -115,11 +122,18 @@ pub fn icon_for_category(category: ConditionCategory) -> &'static str {
 /// byte-identity contract stays visible.
 #[must_use]
 pub fn icon_for_wmo(code: WmoCode) -> &'static str {
-    // Specialized arms go here in PR 4+. Until then
-    // every code routes through its coarsened category,
-    // so the function is total without any per-variant
-    // match arms.
-    icon_for_category(code.coarsen())
+    match code {
+        // Add new specialised arms above this catch-all.
+        // The `_` keeps the function total while arms
+        // are added one at a time;
+        // `tests::icon_for_wmo_respects_its_dispatch_classification`
+        // exhaustively classifies every `WmoCode` as
+        // Specialised or Coarsened, so dropping or
+        // adding an arm without updating that match
+        // fails at compile time.
+        WmoCode::ThunderstormHailHeavy => skip_to_svg_root(HAIL_RAW),
+        _ => icon_for_category(code.coarsen()),
+    }
 }
 
 /// Return the slice starting at the root `<svg>`
@@ -179,6 +193,7 @@ mod tests {
         ("wi-rain.svg", RAIN_RAW),
         ("wi-snow.svg", SNOW_RAW),
         ("wi-thunderstorm.svg", THUNDERSTORM_RAW),
+        ("wi-hail.svg", HAIL_RAW),
         ("wi-na.svg", UNKNOWN_RAW),
     ];
 
@@ -222,6 +237,10 @@ mod tests {
         (
             "wi-thunderstorm.svg",
             "5714873e99b82a9938f89f8c06eda575a4255264cb6d15c9c454bf7ed6f41543",
+        ),
+        (
+            "wi-hail.svg",
+            "ff45a373e4ea53b28c7f25b4422ea510041667042b3b7860e3c679bfed66affb",
         ),
         (
             "wi-na.svg",
@@ -306,17 +325,102 @@ mod tests {
         }
     }
 
+    /// Per-variant classification of `icon_for_wmo`'s
+    /// dispatch, used by the coverage test below.
+    /// Exhaustive `match` without a catch-all — adding
+    /// a new `WmoCode` variant is a compile error until
+    /// the reviewer decides whether it is Specialised
+    /// or Coarsened. That's the forcing function AQ-3
+    /// asked for.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum DispatchKind {
+        /// Variant has its own arm in `icon_for_wmo`
+        /// returning a glyph distinct from
+        /// `icon_for_category(code.coarsen())`.
+        Specialised,
+        /// Variant falls through `icon_for_wmo`'s default
+        /// arm, yielding the same glyph as its coarsened
+        /// category.
+        Coarsened,
+    }
+
+    fn dispatch_kind(code: WmoCode) -> DispatchKind {
+        use DispatchKind::{Coarsened, Specialised};
+        match code {
+            WmoCode::ThunderstormHailHeavy => Specialised,
+            WmoCode::Clear
+            | WmoCode::MainlyClear
+            | WmoCode::PartlyCloudy
+            | WmoCode::Overcast
+            | WmoCode::Fog
+            | WmoCode::RimeFog
+            | WmoCode::DrizzleLight
+            | WmoCode::DrizzleModerate
+            | WmoCode::DrizzleDense
+            | WmoCode::FreezingDrizzleLight
+            | WmoCode::FreezingDrizzleDense
+            | WmoCode::RainSlight
+            | WmoCode::RainModerate
+            | WmoCode::RainHeavy
+            | WmoCode::FreezingRainLight
+            | WmoCode::FreezingRainHeavy
+            | WmoCode::SnowSlight
+            | WmoCode::SnowModerate
+            | WmoCode::SnowHeavy
+            | WmoCode::SnowGrains
+            | WmoCode::RainShowersSlight
+            | WmoCode::RainShowersModerate
+            | WmoCode::RainShowersViolent
+            | WmoCode::SnowShowersSlight
+            | WmoCode::SnowShowersHeavy
+            | WmoCode::Thunderstorm
+            | WmoCode::ThunderstormHailSlight => Coarsened,
+        }
+    }
+
+    #[test]
+    fn icon_for_wmo_respects_its_dispatch_classification() {
+        // The unified contract (AQ-3): every `WmoCode`
+        // variant is either Specialised (differs from
+        // its category fallback) or Coarsened (equals
+        // it), and the classification lives in one place
+        // (`dispatch_kind`). A new variant that is not
+        // classified fails to compile; a specialised arm
+        // dropped silently fails this test loudly.
+        for &code in WmoCode::ALL {
+            match dispatch_kind(code) {
+                DispatchKind::Specialised => assert_ne!(
+                    icon_for_wmo(code),
+                    icon_for_category(code.coarsen()),
+                    "{code:?} is classified Specialised but \
+                     icon_for_wmo routes it through the coarse \
+                     category",
+                ),
+                DispatchKind::Coarsened => assert_eq!(
+                    icon_for_wmo(code),
+                    icon_for_category(code.coarsen()),
+                    "{code:?} is classified Coarsened but \
+                     icon_for_wmo diverges from the coarse \
+                     category",
+                ),
+            }
+        }
+    }
+
     #[test]
     fn icon_for_wmo_falls_back_to_coarsened_category() {
-        // The default arm is the coarsen fallback;
-        // lock that equivalence so a future PR adding
-        // a specialized arm doesn't accidentally break
-        // the guarantee for unspecialised codes. Picks
-        // three representative unspecialised codes.
+        // Human-readable sanity check alongside the
+        // exhaustive `…_respects_its_dispatch_classification`
+        // test above. Keeping `Thunderstorm` explicit
+        // here guards the highest-risk collision zone —
+        // the thunderstorm category, whose specialised
+        // sibling `ThunderstormHailHeavy` already exists
+        // (AQ-5).
         for code in [
             WmoCode::RainSlight,
             WmoCode::SnowSlight,
             WmoCode::Thunderstorm,
+            WmoCode::Fog,
         ] {
             assert_eq!(
                 icon_for_wmo(code),

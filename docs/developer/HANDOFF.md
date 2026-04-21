@@ -1,7 +1,7 @@
 # Handoff to the next agent
 
-Current as of 2026-04-20, version **0.24.0** (commit
-`da8dd7b`). You are the next agent — read this once
+Current as of 2026-04-21, version **0.27.0** (commit
+`6003124`). You are the next agent — read this once
 end-to-end before touching anything.
 
 ## What's built
@@ -28,12 +28,22 @@ feature versions:
 | 0.23.0 | First specialised WMO icon (PR 5): `wi-hail.svg` bundled for `WmoCode::ThunderstormHailHeavy → icon_for_wmo` specialisation; all other codes still coarsen. Exhaustive `dispatch_kind(WmoCode) -> {Specialised, Coarsened}` helper in `icons.rs` tests makes "add a new variant without classifying it" a compile error. Behavioural test (deferred from PR 4) locks the `Fidelity::Detailed` → different SVG bytes contract |
 | 0.23.1 | Dither pre-threshold snap (≤ 20% → 0, ≥ 80% → 255) before FS loop; `cargo xtask deploy` now syncs `deploy/bellwether-web.service` to the RPi when the installed unit differs (guards against v0.16.0-style CLI-arg drift that crash-loops the service) |
 | 0.24.0 | Rasteriser anti-aliasing disabled (`usvg::ShapeRendering::CrispEdges` + `TextRendering::OptimizeSpeed`) — grayscale buffer contains only pure 0 and pure 255, FS has nothing to diffuse, e-ink panel renders crisp text and icons with zero shimmer. Trade-off: pixel-level staircase aliasing on diagonals, acceptable at TRMNL-OG's ~150 DPI glance distance. Hardware-verified on `malina` |
+| 0.25.0 | PR 6: `wi-snow-wind.svg` bundled as the second specialised glyph; `WmoCode::SnowHeavy` now dispatches to the wind-driven snow shape under `fidelity = "detailed"`. Slight / Moderate / Grains / Showers snow variants still coarsen through plain `wi-snow.svg`. First review-clean PR (no findings from either reviewer) — PR 5's forcing-function scaffolding paying off |
+| 0.26.0 | PR 7: `wi-rain-wind.svg` bundled for `WmoCode::RainHeavy`. Exact parallel to PR 6. Slight / Moderate / Showers / Freezing rain variants still coarsen through `wi-rain.svg`. Second consecutive review-clean PR |
+| 0.27.0 | PR 8: `wi-sleet.svg` bundled for `WmoCode::FreezingRainHeavy`. Closes the HANDOFF's PR 5–8 specialisation plan — four "Heavy variant → distinct glyph" specialisations, one per category where intensity-peak detail matters (thunderstorm+hail, snow, rain, freezing rain). Third consecutive review-clean PR |
 
 Every commit goes through `/commit` with red-team +
-artisan reviews; ~140 findings resolved and documented
+artisan reviews; ~145 findings resolved and documented
 in `redteam-resolved.md` / `artisan-resolved.md`. The
 non-obvious design decisions live there, not in code
-comments — read them before changing the design.
+comments — read them before changing the design. The
+icon-bundle PRs (5–8) settled into a review-clean
+rhythm after the forcing-function scaffolding landed
+in PR 5: the exhaustive `dispatch_kind` match, the
+SHA-256 pin table, and the `BUNDLED_ICONS` registry
+between them catch every mechanical mistake at
+compile time, leaving craftsmanship review with
+nothing to flag on a pure-mechanical bundle.
 
 ## What works end-to-end
 
@@ -69,83 +79,126 @@ shimmer, staircase aliasing on diagonals is within
 glance-distance tolerance. The Weather Icons choice
 is validated — no need to fall back to Meteocons.
 
-## Recommended next PR sequence
+## Recommended next work
 
-PR 4 (model + Fidelity) landed in v0.22.0. PR 5
-(first specialised icon, `wi-hail.svg` for
-`ThunderstormHailHeavy`) landed in v0.23.0. Remaining
-work is additive icon bundles — each is one SVG file
-+ one `icon_for_wmo` match arm + one `PINNED_SHA256`
-entry + one `dispatch_kind` classification + one
-`README.md` row. No cross-PR dependencies: the
-`coarsen()` fallback in `icon_for_wmo` guarantees
-every `WmoCode` has a showable icon regardless of
-specialisation status.
+**The HANDOFF's original PR 4–8 plan is complete.**
+PR 4 (model + `Option<Fidelity>`) landed in v0.22.0.
+The PR 5–8 icon specialisations all landed across
+2026-04-20/21:
 
-### PR 6 — Snow variants
+| PR | Version | Specialised arm |
+|----|---------|-----------------|
+| 5 | 0.23.0 | `ThunderstormHailHeavy` → `wi-hail.svg` |
+| 6 | 0.25.0 | `SnowHeavy` → `wi-snow-wind.svg` |
+| 7 | 0.26.0 | `RainHeavy` → `wi-rain-wind.svg` |
+| 8 | 0.27.0 | `FreezingRainHeavy` → `wi-sleet.svg` |
 
-Bundle `wi-snowflake-cold.svg` (or a denser snow
-glyph) and wire up one or more of:
+De facto convention that emerged: **the `Heavy`
+suffix triggers specialisation**; lighter intensities
+coarsen through the nine-category icons. Every
+specialised glyph is visually distinct from its
+coarse fallback at e-ink glance distance.
 
-- `WmoCode::SnowSlight` (71)
-- `WmoCode::SnowModerate` (73)
-- `WmoCode::SnowHeavy` (75)
-- `WmoCode::SnowGrains` (77)
-- `WmoCode::SnowShowersSlight` (85)
-- `WmoCode::SnowShowersHeavy` (86)
+### Natural next step: `classify.rs` split (AQ-132)
 
-Decision to make: do intensity variants get distinct
-glyphs (three snow files), or a single specialised
-glyph that visually differs from the coarse
-`wi-snow.svg`? Recommend starting with `SnowHeavy` →
-a heavier glyph as the only specialised arm, following
-the "one file per PR" cadence from PR 5.
+`crates/bellwether/src/dashboard/classify.rs` is
+~870 lines after PR 4 inlined `condition_to_category`
+back into the module. The file hosts four distinct
+public enums (`Condition`, `ConditionCategory`,
+`WmoCode`, `Compass8`), two classifier functions, an
+error type, and their combined tests. `Compass8`
+shares no types or invariants with the weather-state
+taxonomy; they coexist only because both are
+"display-layer bucketing."
 
-### PR 7 — Rain intensities
+Suggested shape:
 
-Same pattern for rain: `RainSlight` / `RainModerate`
-/ `RainHeavy` + `RainShowers*`. Natural candidate
-glyphs: `wi-raindrops.svg` or `wi-showers.svg` for
-heavier variants.
+- `dashboard/classify/mod.rs` — re-exports the public
+  API so call-sites don't change.
+- `dashboard/classify/weather.rs` — `Condition`,
+  `ConditionCategory`, `WmoCode`, `WeatherCode`,
+  `UnknownWmoCode`, `classify_weather`,
+  `classify_category`, `condition_to_category`, and
+  their tests.
+- `dashboard/classify/compass.rs` — `Compass8` and its
+  tests.
 
-### PR 8 — Freezing variants
+Low-risk mechanical refactor. No semantic changes.
+Because the public API is re-exported, no callers
+need touching. A good warm-up before any other
+feature work; should be a single clean commit with
+no version bump (refactor type per project
+convention).
 
-Freezing drizzle and freezing rain. Candidate:
-`wi-snowflake-cold.svg` or `wi-sleet.svg` for visual
-distinction from plain drizzle/rain.
+### Possible PR 9+ — further icon specialisation
 
-### Mechanics for every PR 6+ bundle
+The "Heavy variant → distinct glyph" convention is
+exhausted for the current WMO 4677 subset. Any future
+specialisation would be in one of these directions,
+each worth deliberate scoping rather than a reflexive
+"one more arm":
+
+- **Intensity gradient** (e.g., `DrizzleLight` /
+  `DrizzleModerate` / `DrizzleDense` all getting their
+  own glyph instead of all coarsening to
+  `wi-sprinkle.svg`). Would need three new files and
+  three new arms at once — breaks the PR-5-onward
+  "one file per PR" cadence.
+- **Day/night variants** (e.g., `wi-day-cloudy.svg`
+  vs `wi-night-cloudy.svg`). Requires the model to
+  carry "is it day?" state, which doesn't exist yet.
+- **Visual distinction for fog variants**
+  (`RimeFog` vs plain `Fog`). Questionable user
+  value — the difference is unlikely to be legible
+  on the e-ink panel at forecast-tile size.
+
+The Artisan's PR 8 review flagged **PR 10–11 as
+the natural point to revisit `match` vs. lookup
+table vs. declarative macro** for specialised arms.
+Not a concern today at four arms, but if PR 9+ adds
+several more, the `PINNED_SHA256` + `BUNDLED_ICONS`
+pair starts feeling like "two places that must
+agree" and a single `SPECIALISED_ICON!` declaration
+could collapse them. Don't do this preemptively —
+the current manual shape produces zero drift bugs
+and each PR diff is trivially local.
+
+### Mechanics for any future specialised-icon PR
+
+The recipe that emerged from PR 5–8 and stayed
+stable across all four:
 
 1. Fetch the upstream SVG verbatim from
    `https://raw.githubusercontent.com/erikflowers/weather-icons/master/svg/`.
    Place under `crates/bellwether/assets/icons/weather-icons/`.
 2. Add a `const FOO_RAW: &str = include_str!(...)` in
    `dashboard/icons.rs` with a docstring naming the
-   upstream glyph and the `WmoCode` it serves.
+   upstream glyph, the `WmoCode` it serves, and the
+   coarse fallback it visibly differs from.
 3. Add an arm **above** the catch-all in `icon_for_wmo`:
    `WmoCode::Foo => skip_to_svg_root(FOO_RAW)`.
 4. Add the SHA-256 pin (`sha256sum < the-file`) to
    `PINNED_SHA256` and the `(filename, BYTES)` row to
    `BUNDLED_ICONS` in the test module.
 5. Reclassify the `WmoCode` variant in `dispatch_kind`
-   from `Coarsened` to `Specialised`. Compile error
-   until all three tables (`icon_for_wmo` arms,
-   `PINNED_SHA256`, `dispatch_kind`) agree.
+   from `Coarsened` to `Specialised` (add it to the
+   `or`-pattern in the Specialised arm, remove it
+   from the Coarsened arm). Compile error until the
+   arm count matches.
 6. Add a row to the "Detailed-fidelity icons" section
    of `assets/icons/weather-icons/README.md`.
-7. Deploy to `malina` and eyeball.
+7. `cargo xtask validate` — the compile-time forcing
+   functions catch mechanical mistakes before AI
+   review sees the diff.
+8. Deploy to `malina` and eyeball. If the code matches
+   real weather, visible on the panel within ~5 min.
 
 ## Open decisions / caveats for the next agent
 
-1. **`classify.rs` is ~870 lines.** AQ-132 in
-   `artisan-log.md` flags splitting it into
-   `classify/{mod,weather,compass}.rs`. `Compass8`
-   shares no types or invariants with the weather-state
-   taxonomy; keeping them in one file is an accident
-   of "both are display-layer bucketing". Low-risk
-   mechanical refactor; good warm-up task before a
-   feature session if you want to touch the module
-   without semantic risk.
+1. **`classify.rs` split** — see "Recommended next
+   work" above. AQ-132 in `artisan-log.md` is the
+   open finding; it's been open since v0.21.0 and is
+   the natural next thing to touch.
 2. **New Weather Icons additions must pin a SHA-256,
    update `BUNDLED_ICONS`, and reclassify in
    `dispatch_kind`.** The

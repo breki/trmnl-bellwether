@@ -7,6 +7,27 @@ reverse chronological order.
 
 ### 2026-04-21
 
+- Bundled `wi-rain-wind.svg` as the third specialised
+  detailed-fidelity glyph (v0.26.0)
+
+    PR 7 of the WMO-icon sequence. Adds the upstream
+    wind-driven rain glyph (byte-identical,
+    SHA-256-pinned as `053048e7…`) and wires
+    `WmoCode::RainHeavy` to it via one `match` arm in
+    `icon_for_wmo`. Slight / Moderate / Showers /
+    Freezing rain variants still coarsen to the plain
+    `wi-rain.svg`; only the heaviest reading escalates
+    to the wind-driven shape. Exact parallel to PR 6's
+    `wi-snow-wind.svg` for `SnowHeavy`.
+
+    Second consecutive review-clean PR — no findings
+    from either reviewer. The PR 5 scaffolding
+    (exhaustive `dispatch_kind`, SHA-256 pin table,
+    BUNDLED_ICONS registry) really is doing its job:
+    the mechanical recipe has enough compile-time
+    forcing functions that it's hard to do wrong, and
+    craftsmanship review has nothing to object to.
+
 - Bundled `wi-snow-wind.svg` as the second specialised
   detailed-fidelity glyph (v0.25.0)
 

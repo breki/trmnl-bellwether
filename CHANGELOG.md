@@ -12,6 +12,15 @@ and this project adheres to
 
 ### Added
 
+- `wi-rain-wind.svg` (Weather Icons by Erik Flowers)
+  bundled as the third specialised detailed-fidelity
+  glyph. `WmoCode::RainHeavy` now dispatches to the
+  wind-driven rain shape under `fidelity = "detailed"`,
+  visually separating heavy rainfall from the plain
+  rain icon used for slight/moderate variants. Mirrors
+  the PR 6 pattern with `wi-snow-wind.svg` for
+  `SnowHeavy`. SHA-256 pinned, byte-identical to
+  upstream.
 - `wi-snow-wind.svg` (Weather Icons by Erik Flowers)
   bundled as the second specialised detailed-fidelity
   glyph. `WmoCode::SnowHeavy` now dispatches to this

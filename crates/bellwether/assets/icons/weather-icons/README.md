@@ -92,6 +92,7 @@ this set in PR 4+ and are reached only when a
 | File | `WmoCode` it serves | Coarse fallback |
 |------|---------------------|-----------------|
 | `wi-hail.svg` | `ThunderstormHailHeavy` | `wi-thunderstorm.svg` |
+| `wi-snow-wind.svg` | `SnowHeavy` | `wi-snow.svg` |
 
 [`ConditionCategory`]: ../../../src/dashboard/classify.rs
 [`WmoCode`]: ../../../src/dashboard/classify.rs

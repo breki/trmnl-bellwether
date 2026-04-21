@@ -76,6 +76,18 @@ const THUNDERSTORM_RAW: &str =
 const HAIL_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-hail.svg");
 
+/// Upstream Weather Icons `wi-snow-wind` — specialised
+/// detailed glyph for [`WmoCode::SnowHeavy`]. The
+/// wind-driven snow shape reads visibly heavier than
+/// the plain `wi-snow` flake at e-ink resolution, so
+/// `fidelity = "detailed"` for a heavy-snowfall code
+/// lands on this glyph while slight/moderate snow
+/// stays on the coarse `wi-snow` fallback. Coarsens
+/// through [`ConditionCategory::Snow`] at
+/// [`Fidelity::Simple`](super::layout::Fidelity::Simple).
+const SNOW_HEAVY_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-snow-wind.svg");
+
 /// Upstream Weather Icons `wi-na` — "not available"
 /// glyph used for [`ConditionCategory::Unknown`] when
 /// the provider returned a WMO code outside the
@@ -132,6 +144,7 @@ pub fn icon_for_wmo(code: WmoCode) -> &'static str {
         // adding an arm without updating that match
         // fails at compile time.
         WmoCode::ThunderstormHailHeavy => skip_to_svg_root(HAIL_RAW),
+        WmoCode::SnowHeavy => skip_to_svg_root(SNOW_HEAVY_RAW),
         _ => icon_for_category(code.coarsen()),
     }
 }
@@ -194,6 +207,7 @@ mod tests {
         ("wi-snow.svg", SNOW_RAW),
         ("wi-thunderstorm.svg", THUNDERSTORM_RAW),
         ("wi-hail.svg", HAIL_RAW),
+        ("wi-snow-wind.svg", SNOW_HEAVY_RAW),
         ("wi-na.svg", UNKNOWN_RAW),
     ];
 
@@ -241,6 +255,10 @@ mod tests {
         (
             "wi-hail.svg",
             "ff45a373e4ea53b28c7f25b4422ea510041667042b3b7860e3c679bfed66affb",
+        ),
+        (
+            "wi-snow-wind.svg",
+            "fa3556e46152867a4a538d54b533b3aed2f031f14c9a8de6e3b53ce0339f5ec2",
         ),
         (
             "wi-na.svg",
@@ -347,7 +365,7 @@ mod tests {
     fn dispatch_kind(code: WmoCode) -> DispatchKind {
         use DispatchKind::{Coarsened, Specialised};
         match code {
-            WmoCode::ThunderstormHailHeavy => Specialised,
+            WmoCode::ThunderstormHailHeavy | WmoCode::SnowHeavy => Specialised,
             WmoCode::Clear
             | WmoCode::MainlyClear
             | WmoCode::PartlyCloudy
@@ -366,7 +384,6 @@ mod tests {
             | WmoCode::FreezingRainHeavy
             | WmoCode::SnowSlight
             | WmoCode::SnowModerate
-            | WmoCode::SnowHeavy
             | WmoCode::SnowGrains
             | WmoCode::RainShowersSlight
             | WmoCode::RainShowersModerate

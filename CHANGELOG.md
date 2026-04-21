@@ -10,6 +10,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `wi-snow-wind.svg` (Weather Icons by Erik Flowers)
+  bundled as the second specialised detailed-fidelity
+  glyph. `WmoCode::SnowHeavy` now dispatches to this
+  wind-driven snow shape under `fidelity = "detailed"`,
+  visually separating heavy snowfall from the plain
+  snowflake that coarse `wi-snow.svg` provides for
+  slight/moderate snow. SHA-256 pinned,
+  byte-identical to upstream. Slight / moderate /
+  grains / showers variants still coarsen through
+  `wi-snow.svg`.
+
 ### Changed
 
 - Rasterisation now disables anti-aliasing at the

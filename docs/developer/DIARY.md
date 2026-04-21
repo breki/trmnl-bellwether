@@ -5,6 +5,37 @@ reverse chronological order.
 
 ---
 
+### 2026-04-21
+
+- Bundled `wi-snow-wind.svg` as the second specialised
+  detailed-fidelity glyph (v0.25.0)
+
+    PR 6 of the WMO-icon sequence. Adds one upstream
+    Weather Icons SVG (byte-identical, SHA-256-pinned
+    as `fa3556e4…`), one `match` arm in
+    `icon_for_wmo` for `WmoCode::SnowHeavy`, and one
+    classification flip in `dispatch_kind` (SnowHeavy
+    moves from Coarsened to Specialised via an
+    `or`-pattern with ThunderstormHailHeavy). Slight,
+    Moderate, Grains, and Showers variants still
+    coarsen through the plain `wi-snow.svg` — only the
+    heaviest reading escalates to the wind-driven
+    glyph, matching the pattern established in PR 5
+    where only the heaviest hail variant got a
+    distinct arm.
+
+    Clean review: both red team and artisan returned
+    "no issues found" — first review-clean PR this
+    session. The compile-time forcing functions added
+    in PR 5 (exhaustive `dispatch_kind` match, SHA-256
+    pin table, BUNDLED_ICONS registry) leave almost
+    no room for a mechanical specialised-icon bundle
+    to go wrong.
+
+- Gitignored the Playwright session scratch files and
+  dropped the now-stale "Working-tree scratch" note
+  from HANDOFF.md.
+
 ### 2026-04-20
 
 - Disabled anti-aliasing at the rasteriser for a

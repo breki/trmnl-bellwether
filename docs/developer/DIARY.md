@@ -7,6 +7,41 @@ reverse chronological order.
 
 ### 2026-04-21
 
+- Bundled `wi-sleet.svg` as the fourth specialised
+  detailed-fidelity glyph — closes the HANDOFF's
+  PR 5–8 icon sequence (v0.27.0)
+
+    PR 8 of the WMO-icon sequence. Adds the upstream
+    sleet glyph (byte-identical, SHA-256-pinned as
+    `beddfdc…`) and wires `WmoCode::FreezingRainHeavy`
+    to it. The sleet shape carries the "cold
+    precipitation, watch the roads" signal a dashboard
+    reader actually uses for freezing rain, which
+    reads as plain rain at a meteorological level but
+    behaves like ice operationally. Lighter freezing
+    variants still coarsen through the plain
+    `wi-rain.svg`, matching the "only heaviest gets
+    specialised" precedent from PR 5/6/7.
+
+    Third consecutive review-clean PR. Artisan added
+    two forward-looking notes worth preserving: (a) the
+    constant-name vs. filename tension
+    (`FREEZING_RAIN_HEAVY_RAW` naming the WmoCode
+    while the file is `wi-sleet.svg`) is a deliberate
+    feature — constants describe the semantic role,
+    filenames preserve upstream provenance for the
+    hash-pin grep loop. (b) The four-arm match +
+    manual six-step recipe is still visibly cheap; the
+    natural point to revisit macro-vs-table is
+    PR 10–11 if the pattern keeps extending.
+
+    Specialised arms now cover: `ThunderstormHailHeavy`
+    → `wi-hail`, `SnowHeavy` → `wi-snow-wind`,
+    `RainHeavy` → `wi-rain-wind`, `FreezingRainHeavy`
+    → `wi-sleet`. The "Heavy suffix → distinct glyph"
+    convention emerged organically from PR 5 onward and
+    is now the de-facto contract for specialisation.
+
 - Bundled `wi-rain-wind.svg` as the third specialised
   detailed-fidelity glyph (v0.26.0)
 

@@ -99,6 +99,21 @@ const SNOW_HEAVY_RAW: &str =
 const RAIN_HEAVY_RAW: &str =
     include_str!("../../assets/icons/weather-icons/wi-rain-wind.svg");
 
+/// Upstream Weather Icons `wi-sleet` — specialised
+/// detailed glyph for [`WmoCode::FreezingRainHeavy`].
+/// Freezing rain looks like rain at a meteorological
+/// level but behaves like ice at a dashboard-reader
+/// level ("take the car or the bus?"), so the sleet
+/// glyph — visually a mix of drops and flakes — is a
+/// better "road conditions" signal than the plain
+/// rain icon. Lighter freezing variants still coarsen
+/// through [`ConditionCategory::Rain`] at
+/// [`Fidelity::Simple`](super::layout::Fidelity::Simple),
+/// matching the "only heaviest gets specialised"
+/// precedent from PR 5/6/7.
+const FREEZING_RAIN_HEAVY_RAW: &str =
+    include_str!("../../assets/icons/weather-icons/wi-sleet.svg");
+
 /// Upstream Weather Icons `wi-na` — "not available"
 /// glyph used for [`ConditionCategory::Unknown`] when
 /// the provider returned a WMO code outside the
@@ -157,6 +172,7 @@ pub fn icon_for_wmo(code: WmoCode) -> &'static str {
         WmoCode::ThunderstormHailHeavy => skip_to_svg_root(HAIL_RAW),
         WmoCode::SnowHeavy => skip_to_svg_root(SNOW_HEAVY_RAW),
         WmoCode::RainHeavy => skip_to_svg_root(RAIN_HEAVY_RAW),
+        WmoCode::FreezingRainHeavy => skip_to_svg_root(FREEZING_RAIN_HEAVY_RAW),
         _ => icon_for_category(code.coarsen()),
     }
 }
@@ -221,6 +237,7 @@ mod tests {
         ("wi-hail.svg", HAIL_RAW),
         ("wi-snow-wind.svg", SNOW_HEAVY_RAW),
         ("wi-rain-wind.svg", RAIN_HEAVY_RAW),
+        ("wi-sleet.svg", FREEZING_RAIN_HEAVY_RAW),
         ("wi-na.svg", UNKNOWN_RAW),
     ];
 
@@ -276,6 +293,10 @@ mod tests {
         (
             "wi-rain-wind.svg",
             "053048e733775066b5ec9792b22361dbc48797e805ddbe099726f219e2cb5ed2",
+        ),
+        (
+            "wi-sleet.svg",
+            "beddfdcefd04461a03b26bf0acd552584185bacd84fe5b663591f0e70951bdc8",
         ),
         (
             "wi-na.svg",
@@ -384,7 +405,8 @@ mod tests {
         match code {
             WmoCode::ThunderstormHailHeavy
             | WmoCode::SnowHeavy
-            | WmoCode::RainHeavy => Specialised,
+            | WmoCode::RainHeavy
+            | WmoCode::FreezingRainHeavy => Specialised,
             WmoCode::Clear
             | WmoCode::MainlyClear
             | WmoCode::PartlyCloudy
@@ -399,7 +421,6 @@ mod tests {
             | WmoCode::RainSlight
             | WmoCode::RainModerate
             | WmoCode::FreezingRainLight
-            | WmoCode::FreezingRainHeavy
             | WmoCode::SnowSlight
             | WmoCode::SnowModerate
             | WmoCode::SnowGrains

@@ -12,6 +12,14 @@ and this project adheres to
 
 ### Added
 
+- `wi-sleet.svg` (Weather Icons by Erik Flowers)
+  bundled as the fourth specialised detailed-fidelity
+  glyph. `WmoCode::FreezingRainHeavy` now dispatches
+  to the sleet shape under `fidelity = "detailed"` —
+  visually "cold precipitation, watch the roads"
+  versus the plain rain glyph used for light freezing
+  rain and regular rain variants. SHA-256 pinned,
+  byte-identical to upstream.
 - `wi-rain-wind.svg` (Weather Icons by Erik Flowers)
   bundled as the third specialised detailed-fidelity
   glyph. `WmoCode::RainHeavy` now dispatches to the

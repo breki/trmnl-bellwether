@@ -94,6 +94,7 @@ this set in PR 4+ and are reached only when a
 | `wi-hail.svg` | `ThunderstormHailHeavy` | `wi-thunderstorm.svg` |
 | `wi-snow-wind.svg` | `SnowHeavy` | `wi-snow.svg` |
 | `wi-rain-wind.svg` | `RainHeavy` | `wi-rain.svg` |
+| `wi-sleet.svg` | `FreezingRainHeavy` | `wi-rain.svg` |
 
 [`ConditionCategory`]: ../../../src/dashboard/classify.rs
 [`WmoCode`]: ../../../src/dashboard/classify.rs

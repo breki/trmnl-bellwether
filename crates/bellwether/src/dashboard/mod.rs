@@ -27,7 +27,7 @@ pub mod layout;
 pub mod model;
 pub mod svg;
 
-pub use classify::{Compass8, Condition, classify_weather};
+pub use classify::Compass8;
 pub use model::{
     CurrentConditions, DAY_TILE_COUNT, DashboardModel, DaySummary,
     MIN_SAMPLES_PER_DAY, ModelContext, TodaySummary, build_model,

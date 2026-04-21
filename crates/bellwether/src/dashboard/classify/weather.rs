@@ -1,42 +1,47 @@
-//! Weather classification + compass-direction bucketing.
+//! Weather-state classification.
 //!
-//! Pure functions that translate already-normalised
-//! forecast values (°C, km/h, mm, compass degrees) into
-//! the display-domain enums the dashboard consumes.
-//! Unit conversion and u/v → (magnitude, direction)
-//! arithmetic live in the provider adapter (see
-//! `crate::clients::windy::snapshot`); this module is
-//! pure display-layer logic.
-//!
-//! ## Two-tier weather taxonomy
+//! Two-tier taxonomy over provider-supplied forecast
+//! data:
 //!
 //! - [`WmoCode`] — the full WMO 4677 code list (28
-//!   variants). Sourced from the provider's
-//!   `weather_code` field and narrowed via
-//!   [`WmoCode::try_from`] at the system boundary.
+//!   variants) narrowed via [`WmoCode::try_from`] at
+//!   the system boundary.
 //! - [`ConditionCategory`] — a 9-variant coarse view
 //!   computed on demand via [`WmoCode::coarsen`]. Never
 //!   stored — the moment a caller needs "a broad
 //!   bucket", it asks for it, so there's no way for
 //!   the two to drift.
 //!
-//! [`classify_category`] is the entry point the
-//! display layer should use once migrated: it prefers
-//! the provider's `weather_code` and only falls back
-//! to cloud+precip when the provider has no code for
-//! that hour. Input comes in as [`WeatherCode`], which
-//! preserves the distinction between "provider sent
-//! nothing" (`None`) and "provider sent a code we
-//! don't recognise" (`Some(WeatherCode::Unrecognised(n))`).
+//! [`classify_category`] is the composite entry point
+//! the display layer uses: it prefers the provider's
+//! `weather_code` and only falls back to cloud+precip
+//! when the provider has no code for that hour. Input
+//! comes in as [`WeatherCode`], which preserves the
+//! distinction between "provider sent nothing"
+//! (`None`) and "provider sent a code we don't
+//! recognise" (`Some(WeatherCode::Unrecognised(n))`).
+//!
+//! The legacy four-variant [`Condition`] survives as
+//! the internal output of [`classify_weather`]'s
+//! cloud+precip heuristic; [`condition_to_category`]
+//! (private) lifts it into the nine-variant taxonomy
+//! inside `classify_category`'s fallback arm. Render
+//! paths consume `ConditionCategory` directly.
 
 use thiserror::Error;
 
-/// Qualitative weather state the dashboard icons and
-/// labels select from. The ordering is "nicer weather
+/// Qualitative weather state the cloud+precip
+/// heuristic produces. The ordering is "nicer weather
 /// first" purely for source-reading convenience; no
 /// code relies on the discriminant values.
+///
+/// Module-private: no longer reaches the render path as
+/// of v0.22.0. Survives only as the internal output of
+/// [`classify_weather`], which [`classify_category`]
+/// lifts into the richer [`ConditionCategory`] taxonomy
+/// via [`condition_to_category`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Condition {
+pub(super) enum Condition {
     /// Clear / mostly-clear skies, no precipitation.
     Sunny,
     /// Scattered to broken cloud, no precipitation.
@@ -48,24 +53,6 @@ pub enum Condition {
     /// drizzle — the dashboard doesn't distinguish
     /// intensity at v1.
     Rain,
-}
-
-impl Condition {
-    /// Short human-readable label for the dashboard —
-    /// the word that sits next to the big temperature
-    /// in the current-conditions panel. Kept short
-    /// enough to fit in the right-hand slot at font
-    /// size 54 on the 800 × 480 layout without
-    /// wrapping.
-    #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Sunny => "Sunny",
-            Self::PartlyCloudy => "Partly cloudy",
-            Self::Cloudy => "Cloudy",
-            Self::Rain => "Rain",
-        }
-    }
 }
 
 /// Nine-variant coarse weather taxonomy — the atomic
@@ -429,73 +416,6 @@ pub fn classify_category(
     }
 }
 
-/// Eight-point compass direction for wind-from labels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compass8 {
-    /// North.
-    N,
-    /// Northeast.
-    NE,
-    /// East.
-    E,
-    /// Southeast.
-    SE,
-    /// South.
-    S,
-    /// Southwest.
-    SW,
-    /// West.
-    W,
-    /// Northwest.
-    NW,
-}
-
-impl Compass8 {
-    /// Short human-readable abbreviation matching the
-    /// enum name (`"N"`, `"NE"`, …). Used directly in
-    /// the dashboard's wind label.
-    #[must_use]
-    pub fn abbrev(self) -> &'static str {
-        match self {
-            Self::N => "N",
-            Self::NE => "NE",
-            Self::E => "E",
-            Self::SE => "SE",
-            Self::S => "S",
-            Self::SW => "SW",
-            Self::W => "W",
-            Self::NW => "NW",
-        }
-    }
-
-    /// Map a compass angle in degrees clockwise from
-    /// North (wrapping is tolerated — `-1.0` and
-    /// `360.0` both fall back to
-    /// [`Compass8::N`]) to the nearest 8-way octant.
-    ///
-    /// Sectors are 45° wide, each centred on its
-    /// compass point — so N covers
-    /// `[337.5, 360) ∪ [0, 22.5)`, NE covers
-    /// `[22.5, 67.5)`, and so on around the rose.
-    /// Half-open on the upper end keeps every angle
-    /// assigned to exactly one octant.
-    #[must_use]
-    pub fn from_degrees(deg: f64) -> Self {
-        match deg {
-            d if !(0.0..360.0).contains(&d) => Self::N,
-            d if d < 22.5 => Self::N,
-            d if d < 67.5 => Self::NE,
-            d if d < 112.5 => Self::E,
-            d if d < 157.5 => Self::SE,
-            d if d < 202.5 => Self::S,
-            d if d < 247.5 => Self::SW,
-            d if d < 292.5 => Self::W,
-            d if d < 337.5 => Self::NW,
-            _ => Self::N,
-        }
-    }
-}
-
 /// Precipitation threshold (mm/h) above which the
 /// condition becomes [`Condition::Rain`] regardless of
 /// cloud cover. 0.5 mm/h is the conventional threshold
@@ -505,14 +425,17 @@ impl Compass8 {
 pub const RAIN_THRESHOLD_MMH: f64 = 0.5;
 
 /// Cloud-cover percentage below which skies count as
-/// [`Condition::Sunny`] (when not raining).
-pub const SUNNY_CEILING_PCT: f64 = 25.0;
+/// [`Condition::Sunny`] (when not raining). Module-
+/// private — a knob for the private [`classify_weather`]
+/// heuristic.
+pub(super) const SUNNY_CEILING_PCT: f64 = 25.0;
 
 /// Cloud-cover percentage at or above which skies count
 /// as fully [`Condition::Cloudy`] (when not raining).
 /// Values in `[SUNNY_CEILING_PCT, CLOUDY_FLOOR_PCT)`
-/// count as [`Condition::PartlyCloudy`].
-pub const CLOUDY_FLOOR_PCT: f64 = 70.0;
+/// count as [`Condition::PartlyCloudy`]. Module-
+/// private alongside [`SUNNY_CEILING_PCT`].
+pub(super) const CLOUDY_FLOOR_PCT: f64 = 70.0;
 
 /// Classify a single forecast sample into a
 /// [`Condition`]. Precipitation dominates: any sample
@@ -527,7 +450,7 @@ pub const CLOUDY_FLOOR_PCT: f64 = 70.0;
 /// boundary values sit in the higher-severity bucket —
 /// rounding never under-reports cloud cover.
 #[must_use]
-pub fn classify_weather(cloud_pct: f64, precip_mmh: f64) -> Condition {
+pub(super) fn classify_weather(cloud_pct: f64, precip_mmh: f64) -> Condition {
     if precip_mmh >= RAIN_THRESHOLD_MMH {
         return Condition::Rain;
     }
@@ -603,51 +526,6 @@ mod tests {
         // 0.4 mm/h is below the rain threshold; with low
         // cloud that's still sunny, not rain.
         assert_eq!(classify_weather(10.0, 0.4), Condition::Sunny);
-    }
-
-    // ─── Compass8::from_degrees ──────────────────────
-
-    #[test]
-    fn compass_cardinal_points_bucket_correctly() {
-        assert_eq!(Compass8::from_degrees(0.0), Compass8::N);
-        assert_eq!(Compass8::from_degrees(45.0), Compass8::NE);
-        assert_eq!(Compass8::from_degrees(90.0), Compass8::E);
-        assert_eq!(Compass8::from_degrees(135.0), Compass8::SE);
-        assert_eq!(Compass8::from_degrees(180.0), Compass8::S);
-        assert_eq!(Compass8::from_degrees(225.0), Compass8::SW);
-        assert_eq!(Compass8::from_degrees(270.0), Compass8::W);
-        assert_eq!(Compass8::from_degrees(315.0), Compass8::NW);
-    }
-
-    #[test]
-    fn compass_sector_boundaries_round_into_higher_numbered_octant() {
-        // Half-open convention: boundary angles sit in
-        // the next octant. Locking this so refactors
-        // don't silently shift the rose.
-        assert_eq!(Compass8::from_degrees(22.5), Compass8::NE);
-        assert_eq!(Compass8::from_degrees(67.5), Compass8::E);
-        assert_eq!(Compass8::from_degrees(337.5), Compass8::N);
-    }
-
-    #[test]
-    fn compass_north_wraps_around_3_3_7_5_boundary() {
-        // 337.4 → NW, 337.5 → N.
-        assert_eq!(Compass8::from_degrees(337.4), Compass8::NW);
-        assert_eq!(Compass8::from_degrees(337.5), Compass8::N);
-        assert_eq!(Compass8::from_degrees(359.99), Compass8::N);
-    }
-
-    #[test]
-    fn compass_out_of_range_angles_default_to_north() {
-        // Defence in depth — the snapshot adapter
-        // normalises via `rem_euclid`, so in practice
-        // `from_degrees` never sees an out-of-range
-        // input. Keeping the match total means a future
-        // provider that forgets to wrap still gets a
-        // sane fallback.
-        assert_eq!(Compass8::from_degrees(-1.0), Compass8::N);
-        assert_eq!(Compass8::from_degrees(360.0), Compass8::N);
-        assert_eq!(Compass8::from_degrees(720.0), Compass8::N);
     }
 
     // ─── WmoCode::try_from + From<WmoCode> for u8 ────
@@ -852,25 +730,5 @@ mod tests {
             condition_to_category(Condition::Rain),
             ConditionCategory::Rain,
         );
-    }
-
-    #[test]
-    fn compass_abbrev_matches_variant_name() {
-        // Label-in-enum invariant: `abbrev()` must return
-        // exactly the Debug name, because the SVG builder
-        // embeds it verbatim. A mismatch here would show
-        // a confusing label like "NE" for `Compass8::E`.
-        for (variant, expected) in [
-            (Compass8::N, "N"),
-            (Compass8::NE, "NE"),
-            (Compass8::E, "E"),
-            (Compass8::SE, "SE"),
-            (Compass8::S, "S"),
-            (Compass8::SW, "SW"),
-            (Compass8::W, "W"),
-            (Compass8::NW, "NW"),
-        ] {
-            assert_eq!(variant.abbrev(), expected);
-        }
     }
 }

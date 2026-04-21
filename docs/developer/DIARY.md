@@ -7,6 +7,55 @@ reverse chronological order.
 
 ### 2026-04-21
 
+- Split `classify.rs` into
+  `classify/{mod,weather,compass}.rs` + narrowed dead
+  public surface (no version bump)
+
+    AQ-132 finally shipped. The old 876-line
+    `dashboard/classify.rs` became three files under a
+    `classify/` directory: `mod.rs` carries the
+    orientation doc and `pub use` re-exports; `weather.rs`
+    holds the weather-state taxonomy (Condition,
+    ConditionCategory, WmoCode, WeatherCode,
+    UnknownWmoCode, classify_weather, classify_category,
+    private condition_to_category, the three heuristic
+    constants, and all weather tests); `compass.rs`
+    holds Compass8 and its tests.
+
+    Pure mechanical split — no semantic changes, every
+    test moved verbatim with identical assertions. The
+    `pub use` block in `classify/mod.rs` keeps the
+    external path `crate::dashboard::classify::X`
+    working untouched for callers.
+
+    The post-split review surfaced three "narrow
+    visibility now that it's localised" findings
+    (AQ-133/134/135) all fixed in-PR:
+    - `Condition` and `classify_weather` narrowed to
+      `pub(super)` — no external consumers remained
+      after PR 4's render-path migration, but their
+      visibility still said "public API." Matching the
+      docstring's "legacy, no longer reaches render
+      path" wording to the actual reach.
+    - `SUNNY_CEILING_PCT` and `CLOUDY_FLOOR_PCT`
+      narrowed to `pub(super)` — knobs for the now-
+      private heuristic. `RAIN_THRESHOLD_MMH` stays
+      `pub` because `model::build::day_category`
+      genuinely consumes it externally.
+    - `Condition::label` removed entirely (dead code
+      after the render-path swap to
+      `ConditionCategory::label`).
+    - `classify/mod.rs` doc thinned from a duplicated
+      full-taxonomy bullet list to a one-paragraph
+      orientation, letting `weather.rs`'s module doc
+      carry the detail as single source of truth.
+
+    AQ-136 (the Artisan's "should WmoCode be a third
+    submodule?" question) answered as "no" — the
+    coupling between WmoCode, ConditionCategory, and
+    classify_weather is too tight to benefit from
+    further subdivision.
+
 - Bundled `wi-sleet.svg` as the fourth specialised
   detailed-fidelity glyph — closes the HANDOFF's
   PR 5–8 icon sequence (v0.27.0)

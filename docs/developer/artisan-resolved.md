@@ -6,6 +6,30 @@ findings.
 
 ---
 
+## 2026-04-21 (refactor — v0.27.0 classify.rs → classify/{mod,weather,compass}.rs split)
+
+### AQ-132 — `classify.rs` module size creeping past 500 lines
+**Category:** Module organisation
+**Description:** `crates/bellwether/src/dashboard/classify.rs` reached 876 lines after PR 4's inlining of `condition_to_category`. The file hosted four distinct public enums (`Condition`, `ConditionCategory`, `WmoCode`, `Compass8`), two classifier functions, an `UnknownWmoCode` error type, and their combined tests. `Compass8` shares no types, invariants, or tests with the weather-state taxonomy; they coexisted only because both are "display-layer bucketing."
+**Fix:** Split into `dashboard/classify/{mod,weather,compass}.rs`. `mod.rs` re-exports the public API so external call-sites don't move; `weather.rs` holds `Condition`, `ConditionCategory`, `WmoCode`, `UnknownWmoCode`, `WeatherCode`, `classify_weather`, `classify_category`, private `condition_to_category`, the three heuristic constants, and all weather tests; `compass.rs` holds `Compass8` and all compass tests. Pure mechanical split — no semantic changes, all tests preserved verbatim with identical assertions. Shipped alongside AQ-133/134/135 as the natural moment to narrow dead-public surface.
+
+### AQ-133 — `Condition` and `classify_weather` were still `pub` with no external consumers
+**Category:** Encapsulation
+**Description:** The PR 4 refactor (v0.22.0) moved the render path off `Condition` onto `ConditionCategory`, leaving `Condition` as an internal output of `classify_weather`'s heuristic only consumed by `classify_category`'s fallback arm. But both types remained `pub` and re-exported from `dashboard/mod.rs` — the docstrings said "legacy, no longer reaches render path" while the visibility said "public API."
+**Fix:** Narrowed `Condition` and `classify_weather` to `pub(super)` in `weather.rs` so they're visible only within the `classify` module tree. Removed from `classify/mod.rs` and `dashboard/mod.rs` re-export blocks. Also removed the now-dead `Condition::label` method (no callers after the render-path migration). `crates/bellwether/src/dashboard/classify/weather.rs`, `crates/bellwether/src/dashboard/classify/mod.rs`, `crates/bellwether/src/dashboard/mod.rs`.
+
+### AQ-134 — Two of the three heuristic constants were dead `pub`
+**Category:** Encapsulation
+**Description:** `RAIN_THRESHOLD_MMH` is genuinely used externally by `model/build.rs`, but `SUNNY_CEILING_PCT` and `CLOUDY_FLOOR_PCT` were only consumed inside `classify_weather` itself. They're knobs for the now-private heuristic; the split was the natural moment to match their visibility to their actual reach.
+**Fix:** Narrowed `SUNNY_CEILING_PCT` and `CLOUDY_FLOOR_PCT` to `pub(super)` in `weather.rs`. Dropped from `classify/mod.rs`'s re-export. `RAIN_THRESHOLD_MMH` stays `pub` — actively consumed by `model::build::day_category`.
+
+### AQ-135 — Module-doc duplication between `classify/mod.rs` and `classify/weather.rs`
+**Category:** Documentation maintenance
+**Description:** The initial split put a full "Weather-state taxonomy" bullet list (WmoCode / ConditionCategory / classify_category / Condition / WeatherCode invariants) into both `classify/mod.rs` and `classify/weather.rs`. Two copies of the same invariants — the `Condition` legacy note appeared in both, the `Unrecognised(n)` distinction was explained twice — a future edit was very likely to touch one and miss the other.
+**Fix:** Thinned `classify/mod.rs` to a one-paragraph orientation ("two sibling submodules that share no types, tests, or invariants") with bullets pointing at `weather` and `compass` for detail. `weather.rs`'s own module doc now carries the full taxonomy story as the single source of truth.
+
+---
+
 ## 2026-04-20 (feat — v0.23.0 specialised wi-hail glyph for `WmoCode::ThunderstormHailHeavy`)
 
 ### AQ-139 — Behavioural test coupled to a non-unique SVG byte pattern

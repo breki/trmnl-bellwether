@@ -1,7 +1,7 @@
 # Handoff to the next agent
 
 Current as of 2026-04-21, version **0.27.0** (commit
-`6003124`). You are the next agent — read this once
+`7b0a56f`). You are the next agent — read this once
 end-to-end before touching anything.
 
 ## What's built
@@ -33,7 +33,7 @@ feature versions:
 | 0.27.0 | PR 8: `wi-sleet.svg` bundled for `WmoCode::FreezingRainHeavy`. Closes the HANDOFF's PR 5–8 specialisation plan — four "Heavy variant → distinct glyph" specialisations, one per category where intensity-peak detail matters (thunderstorm+hail, snow, rain, freezing rain). Third consecutive review-clean PR |
 
 Every commit goes through `/commit` with red-team +
-artisan reviews; ~145 findings resolved and documented
+artisan reviews; ~149 findings resolved and documented
 in `redteam-resolved.md` / `artisan-resolved.md`. The
 non-obvious design decisions live there, not in code
 comments — read them before changing the design. The
@@ -99,36 +99,29 @@ coarsen through the nine-category icons. Every
 specialised glyph is visually distinct from its
 coarse fallback at e-ink glance distance.
 
-### Natural next step: `classify.rs` split (AQ-132)
+### `classify.rs` split — done (AQ-132, commit `7b0a56f`)
 
-`crates/bellwether/src/dashboard/classify.rs` is
-~870 lines after PR 4 inlined `condition_to_category`
-back into the module. The file hosts four distinct
-public enums (`Condition`, `ConditionCategory`,
-`WmoCode`, `Compass8`), two classifier functions, an
-error type, and their combined tests. `Compass8`
-shares no types or invariants with the weather-state
-taxonomy; they coexist only because both are
-"display-layer bucketing."
+The 876-line `classify.rs` is now
+`classify/{mod,weather,compass}.rs`. `mod.rs`
+re-exports the public API; `weather.rs` holds the
+weather-state taxonomy (Condition now private,
+ConditionCategory, WmoCode, WeatherCode,
+UnknownWmoCode, classify_weather, classify_category,
+and the heuristic constants); `compass.rs` holds
+Compass8. The split shipped alongside three
+visibility narrowings (AQ-133/134/135) that the
+localisation made natural:
 
-Suggested shape:
-
-- `dashboard/classify/mod.rs` — re-exports the public
-  API so call-sites don't change.
-- `dashboard/classify/weather.rs` — `Condition`,
-  `ConditionCategory`, `WmoCode`, `WeatherCode`,
-  `UnknownWmoCode`, `classify_weather`,
-  `classify_category`, `condition_to_category`, and
-  their tests.
-- `dashboard/classify/compass.rs` — `Compass8` and its
-  tests.
-
-Low-risk mechanical refactor. No semantic changes.
-Because the public API is re-exported, no callers
-need touching. A good warm-up before any other
-feature work; should be a single clean commit with
-no version bump (refactor type per project
-convention).
+- `Condition` and `classify_weather` narrowed from
+  `pub` to `pub(super)` — no external consumers
+  remained after PR 4's render-path migration.
+- `SUNNY_CEILING_PCT` / `CLOUDY_FLOOR_PCT` narrowed
+  from `pub` to `pub(super)`. `RAIN_THRESHOLD_MMH`
+  stays `pub` (consumed by
+  `model::build::day_category`).
+- `Condition::label` removed — dead code after
+  `ConditionCategory::label` replaced it on the
+  render path.
 
 ### Possible PR 9+ — further icon specialisation
 
@@ -195,11 +188,7 @@ stable across all four:
 
 ## Open decisions / caveats for the next agent
 
-1. **`classify.rs` split** — see "Recommended next
-   work" above. AQ-132 in `artisan-log.md` is the
-   open finding; it's been open since v0.21.0 and is
-   the natural next thing to touch.
-2. **New Weather Icons additions must pin a SHA-256,
+1. **New Weather Icons additions must pin a SHA-256,
    update `BUNDLED_ICONS`, and reclassify in
    `dispatch_kind`.** The
    `bundled_icons_match_pinned_sha256` test enforces
@@ -209,7 +198,7 @@ stable across all four:
    Specialised (arm exists) or Coarsened (falls through)
    — nothing in between. Both tests are compile-time
    forcing functions for the mechanical steps above.
-3. **`bellwether::licenses::ALL` must grow with
+2. **`bellwether::licenses::ALL` must grow with
    every new bundled asset.** If a future PR bundles
    icons from a second upstream source (e.g.
    Meteocons as a fallback set) its license text
@@ -218,7 +207,7 @@ stable across all four:
    `every_bundle_has_a_non_empty_license_entry` test
    catches empty entries but not missing ones — you
    have to remember.
-4. **`WmoCode::ALL` is the single source of truth.**
+3. **`WmoCode::ALL` is the single source of truth.**
    Adding a variant to `WmoCode` requires adding it
    to `ALL`, to `TryFrom<u8>`'s table, to
    `coarsen()`'s exhaustive match, to `dispatch_kind`,
@@ -228,7 +217,7 @@ stable across all four:
    only `ALL` itself is human memory — a new variant
    not listed there silently drops from every
    iteration-based test.
-5. **`Renderer::new()` disables anti-aliasing at the
+4. **`Renderer::new()` disables anti-aliasing at the
    rasterizer by default.** `usvg::Options` gets
    `shape_rendering = CrispEdges` and
    `text_rendering = OptimizeSpeed` set inside

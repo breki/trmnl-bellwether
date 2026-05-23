@@ -167,6 +167,7 @@ Always keep an `[Unreleased]` section at the top.
 | `/todo` | Add a TODO item or implement the next pending one |
 | `/simplify` | Review changed code for quality |
 | `/architect` | Project overview and architecture guide |
+| `/trmnl-expert` | TRMNL device protocol, firmware schema, and operational reference |
 | `/web-dev` | Axum, Svelte 5, Vite, Playwright patterns |
 | `/template-improve` | Log feedback for the rustbase template |
 | `/template-sync` | Sync upstream template changes |

@@ -12,6 +12,22 @@ and this project adheres to
 
 ### Fixed
 
+- `GET /api/display` handler now reads the
+  `Battery-Voltage` request header the TRMNL firmware
+  sends on every poll, and caches it on
+  `TrmnlState.telemetry`. Previously the handler took
+  only `State<TrmnlState>` and ignored the rich
+  device-state headers (`Battery-Voltage`, `RSSI`,
+  `FW-Version`, …) the firmware sends on every wake
+  (~5 min). The dashboard's battery indicator now
+  reflects a live ADC reading from the most recent
+  device poll, refreshing several times an hour
+  instead of waiting for the sparse, event-driven
+  `/api/log` POSTs (which arrive irregularly and
+  only when the device has queued events).
+  Malformed or non-finite header values are ignored
+  to keep the cached voltage from being poisoned by
+  a non-conforming client.
 - TRMNL device-log parser (`/api/log` handler) now
   matches the actual upstream firmware payload shape.
   Previously bellwether-web's `TelemetryPayload`

@@ -7,6 +7,60 @@ reverse chronological order.
 
 ### 2026-05-23
 
+- Added live battery telemetry via `/api/display`
+  request headers (v0.27.2)
+
+    Discovered that the TRMNL firmware sends
+    `Battery-Voltage`, `RSSI`, `FW-Version`, `ID`,
+    and several other device-state fields as HTTP
+    **headers on every `/api/display` poll** — not
+    just in the sparse `/api/log` JSON body. Sourced
+    from `usetrmnl/firmware:src/api-client/display.cpp::addHeaders`
+    (pinned at `6cf2617`, 2026-05-22). The display
+    handler took only `State<TrmnlState>` and threw
+    every header away, so the live battery reading
+    that arrives every ~5 minutes was being dropped
+    on the floor.
+
+    Added `HeaderMap` to the `display` handler
+    signature, parse `Battery-Voltage` as f32, and
+    update `TrmnlState.telemetry` when the value is
+    finite. The cached voltage now refreshes on
+    every device poll instead of waiting for the
+    event-driven `/api/log` POST cadence (which is
+    bursty and can have hour-plus gaps during stable
+    operation).
+
+    Three new tests pin the merge semantic: header
+    present → voltage cached, header absent →
+    previous cache preserved, header malformed →
+    previous cache preserved (NaN / ±inf / non-float
+    must not poison the cache).
+
+    Companion findings from the same investigation
+    captured as new docs:
+    - `/trmnl-expert` skill at
+      `.claude/skills/trmnl-expert/SKILL.md` —
+      protocol / schema reference for all four API
+      endpoints, header schemas, battery model, and
+      the firmware source map. Referenced from
+      `CLAUDE.md`'s skill table.
+    - `docs/developer/RUNBOOK.md` — symptom-keyed
+      operational playbooks ("device shows noise",
+      "battery stuck on em-dash", "zombie
+      connections", etc.). Split out of the skill
+      per AQ-153 so the skill stays focused on
+      reference material and the runbook handles
+      diagnostic flows.
+
+    Three artisan findings (AQ-151..153) all fixed
+    in-PR: documented the two-writer contract on
+    `update_telemetry` (AQ-151), reordered `display()`
+    so the 503 check happens before the
+    telemetry-update side-effect (AQ-152), and split
+    the skill into a focused reference + a separate
+    runbook (AQ-153).
+
 - Fixed the TRMNL device-log parser to match the
   actual firmware payload shape (v0.27.1)
 

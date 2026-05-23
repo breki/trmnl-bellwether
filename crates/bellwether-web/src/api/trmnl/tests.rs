@@ -448,6 +448,103 @@ async fn log_picks_latest_battery_voltage_from_multi_entry_request() {
 }
 
 #[tokio::test]
+async fn display_extracts_battery_voltage_from_request_header() {
+    // The TRMNL firmware sends Battery-Voltage on
+    // every /api/display poll (~every 5 min) — much
+    // faster than the event-driven /api/log path.
+    // Verifying that the cached telemetry on
+    // TrmnlState picks up the live reading.
+    let state = test_state();
+    state
+        .put_image("dash.bmp".into(), Bytes::from_static(b"BM..fake"))
+        .unwrap();
+    let app = router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/display")
+                .header("Battery-Voltage", "3.92")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let voltage = state
+        .telemetry()
+        .battery_voltage
+        .expect("voltage cached from header");
+    assert!(
+        (voltage - 3.92).abs() < 1e-3,
+        "expected ~3.92 V, got {voltage}",
+    );
+}
+
+#[tokio::test]
+async fn display_without_battery_voltage_header_keeps_previous_value() {
+    // Older firmware, /api/display calls from
+    // browsers, and curl probes won't include the
+    // header. Merge semantic: no header means
+    // "preserve whatever's cached", same as the
+    // /api/log handler's behaviour.
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(3.7),
+    });
+    state
+        .put_image("dash.bmp".into(), Bytes::from_static(b"BM..fake"))
+        .unwrap();
+    let app = router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/display")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(state.telemetry().battery_voltage, Some(3.7));
+}
+
+#[tokio::test]
+async fn display_with_malformed_battery_voltage_header_keeps_previous_value() {
+    // A garbage header from a non-conforming client
+    // must not poison the cached voltage. The new
+    // parser only updates when the header parses to
+    // a finite f32; otherwise treated the same as
+    // "header absent".
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(3.7),
+    });
+    state
+        .put_image("dash.bmp".into(), Bytes::from_static(b"BM..fake"))
+        .unwrap();
+    let app = router(state.clone());
+    for bad in ["not-a-float", "NaN", "inf", "-inf", ""] {
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/display")
+                    .header("Battery-Voltage", bad)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "rejected: {bad}");
+        assert_eq!(
+            state.telemetry().battery_voltage,
+            Some(3.7),
+            "cache poisoned by malformed header value: {bad}",
+        );
+    }
+}
+
+#[tokio::test]
 async fn log_with_empty_logs_array_preserves_cached_voltage() {
     // Structurally-valid but semantically empty payload
     // — must NOT clobber the cached voltage to None.

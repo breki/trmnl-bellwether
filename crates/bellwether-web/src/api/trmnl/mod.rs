@@ -376,12 +376,23 @@ impl TrmnlState {
     }
 
     /// Merge fresh fields into the cached device
-    /// telemetry. Called by the `/api/log` handler
-    /// every time the device posts. Fields in `update`
-    /// that are `None` leave the previous cached
-    /// value intact — posts without a battery voltage
-    /// (keepalives, error reports) don't wipe the
-    /// most recent battery reading.
+    /// telemetry. Called from **two writer paths**:
+    ///
+    /// - `/api/display` reads `Battery-Voltage` (and
+    ///   future RSSI / FW-Version) from the HTTP
+    ///   headers the firmware sends on every poll
+    ///   (~5 min). Fast feedback channel.
+    /// - `/api/log` reads the same fields from the
+    ///   JSON body the firmware POSTs when it has
+    ///   queued events. Sparse, event-driven.
+    ///
+    /// Both paths are correct under any interleaving:
+    /// `merge_from` is per-field "last `Some` wins"
+    /// and the `RwLock` serialises writers. Fields in
+    /// `update` that are `None` leave the previous
+    /// cached value intact — keepalives and error
+    /// reports don't wipe the most recent battery
+    /// reading.
     pub fn update_telemetry(&self, update: DeviceTelemetry) {
         let mut cached = self
             .telemetry

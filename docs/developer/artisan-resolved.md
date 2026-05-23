@@ -6,6 +6,25 @@ findings.
 
 ---
 
+## 2026-05-23 (fix — v0.27.2 `/api/display` header-sourced battery telemetry)
+
+### AQ-151 — Two-writer contract on `update_telemetry` undocumented
+**Category:** Documentation / discoverability
+**Description:** v0.27.2 added a second caller of `TrmnlState::update_telemetry` (the `/api/display` handler reading the `Battery-Voltage` HTTP header). The existing `/api/log` handler also calls it. Both paths are correct under any interleaving — `merge_from` is per-field "last `Some` wins" and the `RwLock` serialises writers — but a future reader chasing "where does `telemetry.battery_voltage` get mutated?" would have to grep to discover two distinct writer paths.
+**Fix:** Doc comment on `update_telemetry` now names both writer paths explicitly (HTTP-header on `/api/display` every ~5 min; JSON-body on `/api/log` event-driven), confirms the interleaving safety property, and explains the merge semantic. `crates/bellwether-web/src/api/trmnl/mod.rs`.
+
+### AQ-152 — Side-effect-before-error in `display()` inverted standard handler shape
+**Category:** API design
+**Description:** The initial v0.27.2 draft called `state.update_telemetry(...)` from the header before the 503 image-availability check. That mutates state on a request the handler is about to error on, inverting the standard "parse → check → do work" handler shape. The docstring justified it ("operator's first sight of dashboard reflects fresh device state") but the property is only relevant during the brief startup window where no BMP has been rendered yet — once the publish loop produces a first image, every subsequent poll hits the 200 path and the ordering is moot.
+**Fix:** Reordered `display()` so `latest_filename().ok_or(503)?` runs first. Telemetry update happens only on the 200 path. Docstring updated to name the orthogonality reason explicitly. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-153 — `/trmnl-expert` skill conflated protocol reference with operational runbook
+**Category:** Documentation organisation
+**Description:** The initial `/trmnl-expert` skill at `.claude/skills/trmnl-expert/SKILL.md` bundled both protocol/schema reference (firmware paths, header schemas, lifecycle) and symptom-keyed operational diagnostics ("device shows noise on panel", "battery indicator stuck on em-dash", etc.) into a single ~370-line document. Skills get loaded into context whenever invoked, so every line costs tokens at the call site; mixing reference and runbook bloats the skill for callers who only need one or the other.
+**Fix:** Split the diagnostic playbooks into `docs/developer/RUNBOOK.md`. The skill now points at the runbook for symptom-driven flows and stays focused on protocol/schema reference. Also softened the version-specific reference from "v0.27.0 deployment" to "late-v0.27.x deployment" so the skill text doesn't go stale on every patch bump. `.claude/skills/trmnl-expert/SKILL.md` + new `docs/developer/RUNBOOK.md`.
+
+---
+
 ## 2026-05-23 (fix — v0.27.1 TRMNL device-log parser firmware-envelope shape)
 
 ### AQ-147 — Missing regression test for empty / missing `logs` array

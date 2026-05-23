@@ -56,12 +56,41 @@ pub struct DisplayResponse {
 /// Handler: return the manifest for the next device
 /// poll. Returns `503 Service Unavailable` when no
 /// image has been rendered yet.
+///
+/// Also extracts live device telemetry from the
+/// request headers the TRMNL firmware sends on every
+/// poll (`Battery-Voltage`, `RSSI`, `FW-Version`, …)
+/// and updates `TrmnlState.telemetry` so the next
+/// publish tick's rendered dashboard reflects the
+/// device's current state. `/api/log` carries the
+/// same fields in its JSON body but only when the
+/// device has queued events — sparse and event-
+/// driven. `/api/display` is hit on every wake
+/// (`refresh_rate` seconds, default 300), so this is
+/// the right path for fast battery / signal
+/// telemetry. See `/trmnl-expert` for the full
+/// header schema and firmware source references.
+///
+/// Telemetry update happens **after** the image
+/// availability check: a 503 response means the
+/// publish loop hasn't rendered a first BMP yet, so
+/// the cached telemetry is read by nothing in that
+/// window anyway. Inverting the order would mutate
+/// state on a request we're about to error on, which
+/// is the kind of asymmetry a future reader would
+/// reasonably flag as a bug.
 pub async fn display(
     State(state): State<TrmnlState>,
+    headers: HeaderMap,
 ) -> Result<Json<DisplayResponse>, StatusCode> {
     let filename = state
         .latest_filename()
         .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    if let Some(voltage) = parse_battery_voltage_header(&headers) {
+        state.update_telemetry(DeviceTelemetry {
+            battery_voltage: Some(f64::from(voltage)),
+        });
+    }
     let image_url = format!("{}/{}", state.public_image_base(), filename);
     Ok(Json(DisplayResponse {
         filename,
@@ -72,6 +101,23 @@ pub async fn display(
         reset_firmware: false,
         status: 0,
     }))
+}
+
+/// Pull `Battery-Voltage` out of the request headers
+/// the TRMNL firmware sets on every `/api/display`
+/// poll. Returns `None` for any of: missing header,
+/// non-UTF-8 value, non-`f32` value, or a
+/// non-finite parse result (NaN / ±inf), so a
+/// malformed header from a non-conforming client
+/// can't poison the cached telemetry. The 503
+/// "no image yet" path is unaffected because the
+/// telemetry update happens before the filename
+/// lookup — the operator's first sight of the
+/// dashboard already reflects fresh device state.
+fn parse_battery_voltage_header(headers: &HeaderMap) -> Option<f32> {
+    let raw = headers.get("battery-voltage")?.to_str().ok()?;
+    let v: f32 = raw.parse().ok()?;
+    v.is_finite().then_some(v)
 }
 
 /// Six-character uppercase-hex device identifier

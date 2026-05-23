@@ -11,6 +11,119 @@ marker such as `[Deferred]`, `[Fixed locally]`, or
 
 ---
 
+## 2026-05-23
+
+- **Deploy should auto-sync the systemd unit file
+  (drift detection).** The template's
+  `cargo xtask deploy` ships the binary and config
+  but not the systemd unit. If the unit file in the
+  repo drifts from what's installed on the device
+  (e.g. the project removes a CLI flag like
+  `--frontend` but the device's unit still passes
+  it), the next deploy crash-loops the service
+  because the new binary rejects the stale arg.
+  This bit us hard during a real outage scenario —
+  the v0.16.0 `--frontend` regression silently
+  lived on the deployed unit for ~7 versions and
+  only surfaced on the first deploy after the
+  binary's clap parser tightened. Fixed in this
+  project in commit `f73945b` (v0.23.1): added a
+  `sync_service_unit` step to `cargo xtask deploy`
+  that hashes the local `deploy/<service>.service`
+  against the installed one, scps + `mv` +
+  `daemon-reload`s when they differ, and no-ops
+  when identical. Implementation is ~50 lines of
+  Rust in `xtask/src/deploy.rs` + tests; the
+  `unit_contents_match` helper is the trickiest
+  bit (trailing-newline tolerance because scp /
+  sudo cat round-trips can flip the terminal `\n`).
+  Worth porting to the template so every project
+  gets self-healing unit-file deploys without
+  having to discover the same outage. **Status:**
+  fixed locally; logged for upstream sync.
+
+- **`/commit` skill's E2E step should be
+  conditional on `scripts/e2e.sh` existing, not
+  conditional on diff content.** Step 8 says
+  "Run scripts/e2e.sh … Skip if no frontend or
+  API changes in the diff." When the project has
+  no `scripts/e2e.sh` at all (because the Svelte
+  frontend was dropped in v0.16.0 and the script
+  went with it), the skill's instruction to "run"
+  the script is meaningless and just confuses
+  agents into trying. The diff-based skip is
+  also too narrow: any change touching backend
+  HTTP routes is "an API change" but doesn't
+  necessarily warrant E2E when no end-to-end
+  harness exists. Fix: change step 8 to "Run
+  `scripts/e2e.sh` if it exists and the diff
+  touches frontend / API surface. Skip with no
+  warning if the script is absent (project may
+  have dropped its E2E layer)." **Status:**
+  worked around in tonight's `/commit` invocation
+  by skipping E2E entirely; logged for upstream.
+
+- **Domain-expert skill pattern is genuinely
+  useful — recommend it in the template.** This
+  project hit a real bug tonight where the
+  bellwether-web `/api/log` parser silently
+  drifted from the actual TRMNL firmware schema
+  for 34 days (`battery_voltage=None` across all
+  811 log lines). Recovery required reading the
+  upstream firmware source on GitHub and
+  reconciling. To prevent the same gap from
+  reopening, I created `.claude/skills/trmnl-expert/SKILL.md`
+  capturing the protocol/schema, all four API
+  endpoints with header/body shapes, the firmware
+  source-file map, and a re-verification cadence
+  (a `gh api repos/<owner>/<repo>/commits/HEAD`
+  one-liner that returns the current upstream
+  SHA + date so the next reader knows whether the
+  schema is fresh). The pattern transfers cleanly
+  to any project with a significant external API
+  / device protocol dependency where the schema
+  isn't versioned formally. The template could
+  ship a `.claude/skills/external-protocols/EXAMPLE.md`
+  scaffold or document the pattern in the CLAUDE.md
+  skills section as "When the project depends on
+  an unversioned external schema (firmware,
+  third-party API, internal microservice), create
+  a `<domain>-expert` skill capturing schema +
+  source pin + verification cadence." Companion
+  pattern: `docs/developer/RUNBOOK.md` for
+  symptom-keyed operational playbooks, kept
+  separate from the protocol-reference skill so
+  the skill stays focused (skill ≈ "what does
+  this look like", runbook ≈ "I see X, do Y").
+  **Status:** implemented locally; logged for
+  upstream as a recommended-practice addition.
+
+- **Template's initial `TODO.md` content
+  encourages staleness.** The template ships a
+  `## Pending` section pre-populated with
+  example PRs ("PR 1 (in progress): Config
+  loading", "PR 2: Windy client", "PR 3: First
+  render", "PR N: Wire the loop"). On this
+  project those entries lingered in `## Pending`
+  for ~50 commits past their actual ship date —
+  they're useful as scaffolding on day 1 but
+  rapidly become misleading, because no one
+  thinks to move them when they finish the work
+  ("the diary already captures it"). At the
+  point we noticed, the file had 6 stale entries
+  and 0 real ones until we added today's two
+  battery-related items. Fix options: (a) ship
+  an empty `## Pending` section with a `<!-- Add
+  pending items here -->` comment; (b) ship the
+  examples but auto-stamp them with "Example,
+  delete when claiming first real item"; (c)
+  add a note to the `/todo` skill that fresh
+  projects should clear template examples on
+  first use. **Status:** noticed during tonight's
+  `/todo` invocation; logged for upstream; not
+  fixed in this project (the stale entries are a
+  useful artifact of how the project evolved).
+
 ## 2026-04-19
 
 - **`.gitignore` only hides `/target/` at the workspace

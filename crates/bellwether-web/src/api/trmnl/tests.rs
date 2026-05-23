@@ -337,12 +337,27 @@ async fn preview_returns_404_when_no_image_rendered_yet() {
 }
 
 #[tokio::test]
-async fn log_accepts_known_fields() {
+async fn log_accepts_firmware_envelope() {
+    // Verbatim shape from upstream
+    // `usetrmnl/firmware:lib/trmnl/src/serialize_log.cpp`:
+    // a `logs` array of entries each carrying both
+    // routing metadata (`message`, `source_line`, …)
+    // and a device-status snapshot (`battery_voltage`,
+    // `wifi_signal`, `firmware_version`, …).
     let app = router(test_state());
     let body = serde_json::json!({
-        "battery_voltage": 3.92,
-        "rssi": -67,
-        "fw_version": "1.4.2"
+        "logs": [{
+            "created_at": 1_700_000_000_i64,
+            "id": 1,
+            "message": "wake from deep sleep",
+            "source_path": "src/main.cpp",
+            "source_line": 42,
+            "battery_voltage": 3.92,
+            "wifi_signal": -67,
+            "firmware_version": "1.4.2",
+            "wake_reason": 4,
+            "refresh_rate": 300,
+        }],
     });
     let resp = app
         .oneshot(
@@ -367,8 +382,10 @@ async fn log_persists_battery_voltage_into_state() {
     let state = test_state();
     let app = router(state.clone());
     let body = serde_json::json!({
-        "battery_voltage": 4.01,
-        "rssi": -67,
+        "logs": [{
+            "battery_voltage": 4.01,
+            "wifi_signal": -67,
+        }],
     });
     let resp = app
         .oneshot(
@@ -392,6 +409,103 @@ async fn log_persists_battery_voltage_into_state() {
 }
 
 #[tokio::test]
+async fn log_picks_latest_battery_voltage_from_multi_entry_request() {
+    // The firmware queues logs during deep-sleep and
+    // ships them all at once; each entry carries the
+    // device-status snapshot from when it was created.
+    // The freshest reading is therefore the last
+    // entry's, not the first — locking that ordering
+    // so a future refactor can't silently flip to
+    // "first wins" and start showing stale voltage.
+    let state = test_state();
+    let app = router(state.clone());
+    let body = serde_json::json!({
+        "logs": [
+            { "battery_voltage": 3.85, "message": "older" },
+            { "battery_voltage": 3.92, "message": "newer" },
+        ],
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/log")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    let voltage = state
+        .telemetry()
+        .battery_voltage
+        .expect("voltage persisted");
+    assert!(
+        (voltage - 3.92).abs() < 1e-3,
+        "expected last-entry voltage 3.92 V, got {voltage}",
+    );
+}
+
+#[tokio::test]
+async fn log_with_empty_logs_array_preserves_cached_voltage() {
+    // Structurally-valid but semantically empty payload
+    // — must NOT clobber the cached voltage to None.
+    // This is the exact zone the v0.27.0 bug lived in:
+    // serde happily accepted a body that didn't carry
+    // any real device-status snapshot, and a naive
+    // "always update" handler would have written None
+    // over the previous good reading.
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(3.7),
+    });
+    let app = router(state.clone());
+    let body = serde_json::json!({ "logs": [] });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/log")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(state.telemetry().battery_voltage, Some(3.7));
+}
+
+#[tokio::test]
+async fn log_with_missing_logs_field_preserves_cached_voltage() {
+    // Even the `logs` key itself is optional — the
+    // struct uses `#[serde(default)]` so an empty
+    // object parses to an empty Vec. Same merge
+    // semantic as the empty-array case: cached
+    // voltage must survive.
+    let state = test_state();
+    state.update_telemetry(DeviceTelemetry {
+        battery_voltage: Some(4.0),
+    });
+    let app = router(state.clone());
+    let body = serde_json::json!({});
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/log")
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(state.telemetry().battery_voltage, Some(4.0));
+}
+
+#[tokio::test]
 async fn log_without_battery_voltage_keeps_previous_value() {
     // The TRMNL firmware posts `/api/log` for many
     // reasons (wake-up reports, error reports,
@@ -408,7 +522,9 @@ async fn log_without_battery_voltage_keeps_previous_value() {
     assert_eq!(state.telemetry().battery_voltage, Some(3.7));
 
     let app = router(state.clone());
-    let body = serde_json::json!({ "rssi": -70 });
+    let body = serde_json::json!({
+        "logs": [{ "wifi_signal": -70 }],
+    });
     let resp = app
         .oneshot(
             Request::builder()
@@ -442,7 +558,9 @@ fn trmnl_state_as_image_sink_exposes_telemetry() {
 async fn log_rejects_oversized_body() {
     let app = router(test_state());
     let big = "x".repeat(MAX_LOG_BODY_BYTES + 1);
-    let body = serde_json::json!({ "fw_version": big });
+    let body = serde_json::json!({
+        "logs": [{ "firmware_version": big }],
+    });
     let resp = app
         .oneshot(
             Request::builder()

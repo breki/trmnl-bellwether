@@ -6,6 +6,30 @@ findings.
 
 ---
 
+## 2026-05-23 (fix — v0.27.1 TRMNL device-log parser firmware-envelope shape)
+
+### AQ-147 — Missing regression test for empty / missing `logs` array
+**Category:** Test coverage
+**Description:** The new "last wins" multi-entry test (`log_picks_latest_battery_voltage_from_multi_entry_request`) locks ordering, but no test pinned the no-op behaviour when `logs` is `[]` or the `logs` key is missing entirely. Both should preserve cached `battery_voltage`. The bug just fixed lived precisely in this zone — serde quietly accepting a structurally-unexpected body — so omitting the test would leave room for a future refactor to clobber cached voltage on empty payloads with no failing assertion.
+**Fix:** Added `log_with_empty_logs_array_preserves_cached_voltage` and `log_with_missing_logs_field_preserves_cached_voltage`. Both prime a state cache with a known voltage, post an empty / missing-logs body, and assert the cached value survives. Together with the existing `log_without_battery_voltage_keeps_previous_value` (one entry, no voltage), the three tests cover the merge-semantics contract end-to-end. `crates/bellwether-web/src/api/trmnl/tests.rs`.
+
+### AQ-148 — `extra: HashMap<String, serde_json::Value>` is the kind of type that gets reached into
+**Category:** API discipline
+**Description:** `extra` is `pub(super)` so the blast radius is limited to sibling code, but once a `HashMap<String, Value>` is in reach, it's tempting to `.get("some_field")` from a sibling module instead of promoting the field to a typed arm. That defeats the schema-discipline that the typed surface provides.
+**Fix:** Added an inline comment on the field explicitly forbidding `.get()` from sibling code and naming the right way to consume a new firmware field: promote it to a typed `Option<...>` arm above. Policy lives next to the data so a reader can't miss it. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-149 — Integer widths on log-only fields were over-broad
+**Category:** Type design
+**Description:** `wake_reason: Option<i64>` and `refresh_rate: Option<i64>` were defaulted to the widest signed integer even though the firmware semantics constrain them tightly: `wake_reason` is an ESP32 wake-cause enum (single-digit unsigned), `refresh_rate` is seconds (and `RefreshInterval` two screens away in the same module is `u32`). `wifi_signal: Option<i32>` was similarly over-broad — RSSI in dBm comfortably fits `i16`.
+**Fix:** Narrowed to `wake_reason: Option<u32>`, `refresh_rate: Option<u32>` (matching the sibling `RefreshInterval` newtype), `wifi_signal: Option<i16>`. Each narrowing has an inline comment naming the domain it matches. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+### AQ-150 — Docstring cited upstream firmware paths without a version pin
+**Category:** Documentation maintenance
+**Description:** The struct docstrings referenced `usetrmnl/firmware:lib/trmnl/src/serialize_log.cpp` verbatim. Future upstream renames or schema changes would silently stale the citation. The bug we just fixed was caused by exactly this kind of drift going undetected for 34 days; the citations are valuable enough to keep but need a "when was this true?" marker.
+**Fix:** Added a "Pinned against upstream `6cf2617` (2026-05-22)" line to the envelope docstring naming the commit at which the schema was last verified against the live firmware source. A future refactor touching these fields knows to re-check against the corresponding paths in case upstream drifted. `crates/bellwether-web/src/api/trmnl/handlers.rs`.
+
+---
+
 ## 2026-04-21 (refactor — v0.27.0 classify.rs → classify/{mod,weather,compass}.rs split)
 
 ### AQ-132 — `classify.rs` module size creeping past 500 lines

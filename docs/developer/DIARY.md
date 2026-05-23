@@ -5,6 +5,66 @@ reverse chronological order.
 
 ---
 
+### 2026-05-23
+
+- Fixed the TRMNL device-log parser to match the
+  actual firmware payload shape (v0.27.1)
+
+    The bug surfaced when the TRMNL battery died
+    unannounced and showed noise on the panel for
+    hours before the operator noticed. Diagnosis
+    found that across 811 device-log lines spanning
+    34 days, bellwether-web's `/api/log` handler had
+    been logging `battery_voltage=None` every single
+    time, and the dashboard's battery indicator
+    silently rendered as em-dash placeholder — there
+    was no early-warning signal for battery
+    depletion. `extra_keys=1` on logged lines was the
+    tell: the entire firmware payload was falling
+    into the `#[serde(flatten)] extra` catchall
+    under one key (turned out to be `"logs"`).
+
+    Root cause was schema drift between bellwether-
+    web's struct and the actual firmware shape.
+    Verified against upstream
+    `usetrmnl/firmware:lib/trmnl/src/serialize_log.cpp`
+    (pinned at `6cf2617`, 2026-05-22): the firmware
+    posts `{"logs": [<entry>, <entry>, ...]}` where
+    each entry carries both routing metadata
+    (`message`, `source_line`, …) and a device-status
+    snapshot (`battery_voltage`, `wifi_signal`,
+    `firmware_version`, …). The TRMNL queues entries
+    during deep-sleep and ships them all in one POST
+    on wake, in chronological order, so the freshest
+    reading lives in the last entry.
+
+    Replaced `TelemetryPayload` with
+    `TrmnlLogRequest { logs: Vec<TrmnlLogEntry> }`
+    matching the firmware shape verbatim. Handler
+    iterates entries, logs each at INFO with
+    structured fields, surfaces anything new in
+    `extra` at DEBUG, and caches the last non-`None`
+    `battery_voltage` on `TrmnlState` so the next
+    publish tick can render a real percentage.
+
+    Four review findings (AQ-147..150) all fixed
+    in-PR: regression tests for empty / missing
+    `logs` (the exact zone the bug lived in),
+    `extra` field gets a do-not-`.get()` policy
+    comment, integer widths narrowed to domain shape
+    (`wake_reason: u32`, `refresh_rate: u32`,
+    `wifi_signal: i16`), and the firmware citation
+    pinned to commit `6cf2617`.
+
+    Hardware verification deferred until the device
+    next posts a log on its 5-min polling cadence —
+    if the parser is right, `journalctl -u
+    bellwether-web` will show a non-`None`
+    `battery_voltage` value within minutes of the
+    deploy.
+
+---
+
 ### 2026-04-21
 
 - Split `classify.rs` into

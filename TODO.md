@@ -21,6 +21,20 @@
 - **PR N:** Wire the `fetch → render → publish` loop
   behind a `bellwether run` subcommand with a
   configurable refresh interval.
+- **Idle-connection timeout on bellwether-web HTTP
+  routes.** Nine ESTABLISHED TCP connections from the
+  TRMNL device IP accumulated over 32 days of uptime,
+  all idle (Recv-Q = Send-Q = 0). Each is a leftover
+  from a wake cycle where the battery-powered device
+  opens a TCP socket then deep-sleeps without sending
+  FIN — malina's kernel keeps the connection
+  ESTABLISHED indefinitely, leaking file descriptors
+  one or two per battery brownout. Mitigation: attach
+  `tower::timeout::TimeoutLayer` (or similar idle
+  timeout) to the TRMNL webhook routes at ~30 s so
+  half-open sockets get force-closed server-side.
+  Chronic, not urgent, but accumulates with every
+  battery-brownout event.
 
 ## Chores
 
@@ -74,6 +88,24 @@
 
 ## Done
 
+- **TRMNL device-log parser: `battery_voltage` always
+  `None` (fixed in v0.27.1, 2026-05-23).** Root cause was schema drift
+  between bellwether-web's `TelemetryPayload`
+  (expected top-level `battery_voltage` / `rssi` /
+  `fw_version`) and the upstream
+  `usetrmnl/firmware:lib/trmnl/src/serialize_log.cpp`
+  shape (`{"logs": [{"battery_voltage": …,
+  "wifi_signal": …, "firmware_version": …}]}`). The
+  device's entire payload was falling into the
+  `#[serde(flatten)] extra` catchall under one key
+  (`"logs"`), surfacing as `extra_keys=1` across all
+  811 device-log lines over 34 days. Replaced the
+  struct with the firmware-faithful
+  `TrmnlLogRequest { logs: Vec<TrmnlLogEntry> }`
+  envelope; handler now iterates entries and picks
+  the freshest battery_voltage. Restored the
+  dashboard's battery indicator from em-dash to a
+  real percentage.
 - **Spike.** TRMNL protocol, hardware specs, render
   crate, HA auth decisions captured in
   `docs/developer/spike.md` (2026-04-16). OG 7.5"

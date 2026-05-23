@@ -10,9 +10,29 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-- `wi-sleet.svg` (Weather Icons by Erik Flowers)
+- TRMNL device-log parser (`/api/log` handler) now
+  matches the actual upstream firmware payload shape.
+  Previously bellwether-web's `TelemetryPayload`
+  expected top-level `battery_voltage` / `rssi` /
+  `fw_version`, but the firmware sends
+  `{"logs": [{"battery_voltage": …,
+  "wifi_signal": …, "firmware_version": …, …}]}` —
+  the entire payload was falling into a `#[serde(flatten)]
+  extra` catchall under one key, so across all 811
+  device-log lines spanning 34 days `battery_voltage`
+  was always `None` and the dashboard's battery
+  indicator silently rendered as em-dash. Replaced
+  with `TrmnlLogRequest { logs: Vec<TrmnlLogEntry> }`
+  envelope matching `usetrmnl/firmware:lib/trmnl/src/serialize_log.cpp`;
+  handler iterates entries and caches the freshest
+  non-`None` `battery_voltage` on `TrmnlState`.
+  Restores the early-warning signal for battery
+  depletion that would have caught the 2026-05-23
+  outage hours before the device went silent.
+
+### Added
   bundled as the fourth specialised detailed-fidelity
   glyph. `WmoCode::FreezingRainHeavy` now dispatches
   to the sleet shape under `fidelity = "detailed"` —

@@ -217,53 +217,136 @@ pub async fn preview(State(state): State<TrmnlState>) -> Response {
     resp
 }
 
-/// Known fields the TRMNL OG firmware sends in its
-/// telemetry blob. Unknown fields still parse (as part
-/// of `extra`) and are only surfaced at the `DEBUG`
-/// level.
+/// Envelope sent by the TRMNL OG firmware to
+/// `/api/log`. The device queues log entries while
+/// it's in deep-sleep between wake cycles and ships
+/// them all in one POST when it wakes, so `logs` is
+/// typically non-empty but can hold either one entry
+/// (a fresh wake) or several (catching up after a
+/// long sleep / connectivity gap).
+///
+/// Schema sourced verbatim from
+/// `usetrmnl/firmware:lib/trmnl/src/serialize_request_api_log.cpp`
+/// and the per-entry shape from
+/// `lib/trmnl/src/serialize_log.cpp` — every field
+/// name here matches the wire JSON exactly so a
+/// future firmware refresh that adds a field needs
+/// only an `Option<…>` arm here, not a rename.
+/// Pinned against upstream `6cf2617` (2026-05-22) at
+/// the time this struct was last verified; a future
+/// refactor that touches these fields should
+/// re-check the firmware source at the corresponding
+/// path in case the schema drifted.
 #[derive(Debug, serde::Deserialize, Default)]
-pub(super) struct TelemetryPayload {
+pub(super) struct TrmnlLogRequest {
+    #[serde(default)]
+    pub(super) logs: Vec<TrmnlLogEntry>,
+}
+
+/// One log entry inside [`TrmnlLogRequest`]. Field
+/// names mirror the firmware's `JsonDocument` keys
+/// 1:1. The device-status fields (`battery_voltage`,
+/// `wifi_signal`, `firmware_version`) are snapshotted
+/// at the moment the log was emitted, not at send
+/// time, so the freshest reading lives in the last
+/// entry of `logs`. Every field is `Option` because
+/// `#[serde(default)]` lets an older firmware that
+/// omits one field still parse cleanly.
+///
+/// Only fields the handler currently reads are typed
+/// out; everything else the firmware emits
+/// (`id`, `source_line`, `source_path`,
+/// `wifi_status`, `sleep_duration`, `special_function`,
+/// `free_heap_size`, `max_alloc_size`, `retry`, …)
+/// lands in `extra` and is surfaced at `DEBUG`. Promote
+/// fields out of `extra` when a real consumer appears
+/// (e.g. the PR 3d "persist last device telemetry"
+/// work that wants RSSI in `/api/status`).
+#[derive(Debug, serde::Deserialize, Default)]
+pub(super) struct TrmnlLogEntry {
+    #[serde(default)]
+    pub(super) created_at: Option<i64>,
+    #[serde(default)]
+    pub(super) message: Option<String>,
     #[serde(default)]
     pub(super) battery_voltage: Option<f32>,
+    // `wifi_signal` is RSSI in dBm — small negative
+    // integers in practice (-100..0). `i16` is amply
+    // wide and matches the domain shape.
     #[serde(default)]
-    pub(super) rssi: Option<i32>,
+    pub(super) wifi_signal: Option<i16>,
     #[serde(default)]
-    pub(super) fw_version: Option<String>,
+    pub(super) firmware_version: Option<String>,
+    // `wake_reason` is an ESP32 enum discriminator
+    // (single-digit unsigned). `refresh_rate` is the
+    // device's polling interval in seconds — matches
+    // the `RefreshInterval: u32` newtype already in
+    // this module.
+    #[serde(default)]
+    pub(super) wake_reason: Option<u32>,
+    #[serde(default)]
+    pub(super) refresh_rate: Option<u32>,
+    // DEBUG-only sink: do not `.get()` from this in
+    // sibling code. The right way to consume a new
+    // firmware field is to promote it to a typed
+    // field above, not to reach into the map. Keeping
+    // this discipline means `extra` only ever holds
+    // fields we haven't decided to model yet, and the
+    // typed surface stays the contract.
     #[serde(flatten)]
     pub(super) extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
-/// Handler: accept a small telemetry blob. Logs
-/// known fields as structured attributes at `INFO`;
-/// logs the full payload at `DEBUG` for
-/// investigating unusual shapes without flooding
-/// normal-level logs. Body size is capped at
-/// `MAX_LOG_BODY_BYTES` via the route's
-/// `DefaultBodyLimit` layer.
+/// Handler: accept a TRMNL log request, log each
+/// entry as a structured event at `INFO`, log any
+/// unknown fields at `DEBUG`, and cache the freshest
+/// `battery_voltage` reading on `TrmnlState` so the
+/// next publish tick's rendered dashboard reflects
+/// current device telemetry.
 ///
-/// Also caches the parsed `battery_voltage` on
-/// `TrmnlState` so the next publish tick's rendered
-/// dashboard can reflect current device telemetry.
+/// "Freshest" = the last `Some` value across the
+/// entries in document order. The firmware appends
+/// in chronological order and the device-status
+/// snapshot is taken at entry-creation time, so the
+/// final entry's voltage is the most recent
+/// observation. Earlier non-`None` readings still
+/// get logged but don't overwrite a later reading
+/// with a stale one.
+///
+/// Body size is capped at `MAX_LOG_BODY_BYTES` via
+/// the route's `DefaultBodyLimit` layer.
 pub async fn log(
     State(state): State<TrmnlState>,
-    Json(payload): Json<TelemetryPayload>,
+    Json(payload): Json<TrmnlLogRequest>,
 ) -> StatusCode {
-    tracing::info!(
-        battery_voltage = ?payload.battery_voltage,
-        rssi = ?payload.rssi,
-        fw_version = ?payload.fw_version,
-        extra_keys = payload.extra.len(),
-        "trmnl device log",
-    );
-    if !payload.extra.is_empty() {
-        tracing::debug!(
-            extra = ?payload.extra,
-            "trmnl device log extras",
+    let mut latest_voltage: Option<f32> = None;
+    for entry in &payload.logs {
+        tracing::info!(
+            created_at = ?entry.created_at,
+            message = ?entry.message,
+            battery_voltage = ?entry.battery_voltage,
+            wifi_signal = ?entry.wifi_signal,
+            firmware_version = ?entry.firmware_version,
+            wake_reason = ?entry.wake_reason,
+            refresh_rate = ?entry.refresh_rate,
+            extra_keys = entry.extra.len(),
+            "trmnl device log",
         );
+        if !entry.extra.is_empty() {
+            tracing::debug!(
+                extra = ?entry.extra,
+                "trmnl device log extras",
+            );
+        }
+        if entry.battery_voltage.is_some() {
+            latest_voltage = entry.battery_voltage;
+        }
     }
-    state.update_telemetry(DeviceTelemetry {
-        battery_voltage: payload.battery_voltage.map(f64::from),
-    });
+    if let Some(v) = latest_voltage {
+        state.update_telemetry(DeviceTelemetry {
+            battery_voltage: Some(f64::from(v)),
+        });
+    }
     StatusCode::NO_CONTENT
 }
 

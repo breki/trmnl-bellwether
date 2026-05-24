@@ -1,4 +1,5 @@
 mod check;
+mod clean_cache;
 mod clippy_cmd;
 mod coverage;
 mod deploy;
@@ -50,6 +51,9 @@ enum XCommand {
     Coverage,
     /// Run code duplication check (requires code-dupes)
     Dupes,
+    /// Empty `target/{debug,release}/incremental/` while
+    /// keeping the dirs themselves (manual invocation only)
+    CleanCache,
     /// One-time `RPi` provisioning (user, dirs, service)
     DeploySetup,
     /// Build and deploy to the `RPi`
@@ -87,6 +91,7 @@ fn main() {
         XCommand::Fmt => fmt_cmd::fmt(),
         XCommand::Coverage => coverage::coverage(),
         XCommand::Dupes => dupes::dupes(),
+        XCommand::CleanCache => clean_cache::clean_cache(),
         XCommand::DeploySetup => {
             deploy_setup::deploy_setup().map_err(|e| format!("{e:#}"))
         }

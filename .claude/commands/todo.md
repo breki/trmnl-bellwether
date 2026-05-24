@@ -1,42 +1,64 @@
 ---
-description: Add a TODO item, or implement the next pending one
-allowed-tools: Bash(cargo xtask*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(scripts/e2e.sh), Read, Write, Edit, Glob, Grep, Agent, AskUserQuestion, Skill(commit)
+description: Capture an issue or idea into the TODO list (no implementation)
+allowed-tools: Read, Write, Edit, Grep
 ---
 
-Manage the project TODO list (`TODO.md`).
+Collect an issue or idea into `docs/todo.md`. This
+command **only captures** -- it never implements. Use
+`/implement` to act on a captured item.
 
 ## Behaviour
 
-- **With arguments** (e.g. `/todo fix the search bar`):
-  add the text as a new pending item to `TODO.md` under
-  `## Pending`. Do NOT implement it -- just add it and
-  confirm.
-
-- **Without arguments** (just `/todo`): read `TODO.md`,
-  pick the first pending item, and implement it using
-  the steps below.
+- **With arguments** (e.g. `/todo search bar is slow`):
+  add the text as a new pending item with a generated
+  slug.
+- **Without arguments** (just `/todo`): list the
+  current pending items (slug + first line) so the
+  user can see what is queued, then stop.
 
 ## Adding an item
 
-1. Read `TODO.md`
-2. Append a new bullet under `## Pending` with the
-   user's text (wrap at 80 chars, use markdown bullet)
-3. Confirm the item was added
+1. Read `docs/todo.md`.
 
-## Implementing the next item
+2. **Generate a slug** from the user's text:
+   - Lowercase, ASCII only, words joined by `-`.
+   - Drop filler words (`a`, `the`, `to`, `for`,
+     `is`, `of`, `in`, `on`, `and`, `or`).
+   - 3-6 words, <= 50 chars total.
+   - Should read as a topic, not a sentence:
+     `search-bar-perf`, not
+     `make-the-search-bar-faster`.
+   - If the slug collides with an existing pending or
+     done entry in `docs/todo.md`, append `-2`,
+     `-3`, etc.
 
-1. Read `TODO.md` and identify the first pending item
-   (items under the `## Done` heading are completed)
+3. Append a bullet under `## Pending` in this exact
+   form:
 
-2. If the item is ambiguous or has multiple possible
-   interpretations, use `AskUserQuestion` to clarify
+   ```
+   - **<slug>** -- <one-line summary, <= 80 chars>
+     <optional extra lines, indented 2 spaces, wrapped
+     at 80>
+   ```
 
-3. Implement the item following all project rules in
-   `CLAUDE.md`
+   Keep the user's wording. Do not paraphrase or
+   expand.
 
-4. Run `cargo xtask validate` to ensure all checks pass
+4. Confirm: print the slug and the line that was
+   added. Mention `/implement <slug>` as the next
+   step. Do not start implementing.
 
-5. Move the completed item to the `## Done` section of
-   `TODO.md` with today's date in parentheses
+## Listing pending items
 
-6. Commit using `/commit`
+When called with no arguments:
+
+- Read `docs/todo.md`.
+- Print each pending entry as `<slug> -- <summary>`,
+  one per line. Nothing else.
+
+## Rules
+
+- Never edit the `## Done` section from this command.
+- Never create files in `docs/issues/` from this
+  command -- that is `/implement`'s job.
+- Never run tests, builds, or git commands.

@@ -5,6 +5,145 @@ reverse chronological order.
 
 ---
 
+### 2026-05-24
+
+- Synced upstream rustbase template v0.4.0 → v0.10.1
+  (20 commits)
+
+    Workflow surface:
+    - `/todo` is now capture-only; implementation
+      moved to a new `/implement` skill that maintains
+      a per-issue audit trail at
+      `docs/issues/<slug>.md`. Migrated `TODO.md` →
+      `docs/todo.md` with slugs (dropped 4 stale
+      template-scaffolding PR entries; preserved 10
+      real pending items and 2 done).
+    - New `/retrospect` skill, invoked automatically
+      by `/commit` step 12, with a recursive-skip
+      carve-out for workflow-only diffs.
+    - `/commit` hardened: explicit diff-handoff
+      guidance to subagents (run `git diff --cached`
+      yourself, never write to `/tmp`),
+      cross-confirmed finding detection, truncated-
+      reviewer-output detection via `SendMessage`,
+      terse resolved-log format, CHANGELOG trigger
+      widened to "observable effect" not commit type.
+    - `/template-sync` hardened: hard-coded upstream
+      URL with strict normalization, divergence
+      cross-reference, Windows colon-mangling
+      workaround documented, no bulk-apply.
+    - `/template-improve` adopts a three-section
+      lifecycle (Open divergences / Resolved /
+      Suggestions to flow back); restructured
+      `docs/developer/template-feedback.md`
+      accordingly. Four prior entries closed as
+      Resolved (the fixes landed in upstream
+      `/commit`).
+
+    Build / xtask:
+    - New `cargo xtask clean-cache` empties
+      `target/{debug,release}/incremental/` while
+      preserving the dirs. Reparse-point safe (won't
+      follow Windows junctions out of workspace).
+    - `cargo xtask validate` Test step now scoped to
+      `-p xtask` only (coverage runs the full
+      workspace under llvm-cov instrumentation
+      already; running it twice is duplication). Step
+      label updated to `Test (xtask only)`. End-to-
+      end validate run dropped ~20-30s.
+    - `cargo xtask check` failure output now dumps
+      the stderr tail when no rustc error lines were
+      matched (e.g. manifest parse failure, corrupted
+      `Cargo.lock`). Also fixed a bug where user
+      errors mentioning "aborting" were filtered as
+      rustc summary lines.
+    - `coverage.rs` refactored to a structured
+      `CoverageFailure` enum + `FailingModule` with
+      uncovered line ranges via parsed llvm-cov
+      `segments`. Output now shows
+      `module.rs: 72.5%` + `uncovered: 84-93, 209-221`
+      instead of just the percentage.
+    - New `helpers.rs` utilities: `fmt_bytes`,
+      `DirSizeWarning`, `dir_size`,
+      `is_reparse_or_symlink_meta`.
+
+    Stop hook + lints:
+    - `.claude/hooks/stop-check.sh` switched to a
+      fast-path subset (fmt-check + clippy + tests)
+      with per-stage labels. Coverage and dupes
+      intentionally dropped (they still run from
+      `/commit`); fmt-check added because chore /
+      docs / refactor / test commits skip validate
+      entirely.
+    - New `clippy.toml` with a `doc_markdown`
+      allowlist for infrastructure idents
+      (`PowerShell`, `JSON`, `Tokio`, `Axum`, etc.) so
+      doc comments don't need to backtick every
+      occurrence.
+
+    Other:
+    - `Cargo.toml` adds an opt-in
+      `[profile.release-fast]` with explicit
+      "never deploy" warning -- for profiling builds
+      that need release optimization but fast
+      iteration.
+    - CLAUDE.md gains six new reference sections
+      (workspace lints + xtask overrides; coverage
+      exceptions for hardware-bound code; shell
+      wrappers; `doc_markdown` allowlist; edition-
+      2024 migration notes; version source of
+      truth) plus a TDD rewrite distinguishing
+      behaviour-change (strict red/green) from
+      structural-addition (test+impl together).
+    - Deleted 5 trivial shell wrappers under
+      `scripts/` (`build.sh`, `clippy.sh`,
+      `fmt.sh`, `test.sh`, `validate.sh`) -- two
+      bypassed xtask in violation of project
+      policy; the rest were 1-line forwards.
+      `scripts/kill-servers.sh` kept (has real
+      logic).
+    - `.gitignore`: `/target/` un-anchored to
+      `target/` so crate-local target dirs no longer
+      show as untracked (long-standing 2026-04-19
+      feedback entry, now resolved).
+
+    Skipped from upstream: the deploy cluster
+    (`xtask/src/deploy*.rs`, `.deploy.sample`,
+    `deploy/rustbase-web.service`,
+    `docs/deployment.md`) because the project's
+    local deploy includes `sync_service_unit` drift
+    detection that upstream lacks, and upstream's
+    `build_frontend()` references a Svelte stack
+    this project removed in v0.16.0. The backfeed
+    direction (local → template) is the right one
+    and is still pending. Also skipped the
+    `/template-backfeed` skill (aborts on non-
+    `breki/rustbase` origins) and various template-
+    internal docs (CHANGELOG.md, README.md,
+    llms.txt, DIARY.md, ledgerstone plan).
+
+    Seven code-review findings (RT-052 through
+    RT-054, AQ-048 through AQ-051) on upstream-
+    imported code were logged to
+    `template-feedback.md` under "Suggestions to
+    flow back" rather than fixed in-PR -- fixing
+    would deviate from upstream baseline and
+    complicate the next sync. Two are real
+    correctness issues (`clean_cache` folds sizing
+    warnings into deletion-error exit;
+    `CARGO_TARGET_DIR` not respected), four are
+    Rust idiom nits (missing `Debug` derives, free-
+    function formatter where `Display` belongs,
+    overly-public fields, mixed typed/untyped JSON
+    access), one is the `.gitignore` un-anchoring
+    being broader than the original feedback
+    required.
+
+    Sync marker: `076cf448` → `d29e057d`
+    (v0.4.0 → v0.10.1).
+
+---
+
 ### 2026-05-23
 
 - Added live battery telemetry via `/api/display`

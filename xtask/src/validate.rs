@@ -17,7 +17,7 @@ pub fn validate() -> Result<(), String> {
 
     run_step(1, "Fmt", run_fmt)?;
     run_step(2, "Clippy", run_clippy)?;
-    run_step(3, "Test", run_test)?;
+    run_step(3, "Test (xtask only)", run_test)?;
     run_step(4, "Coverage", run_coverage)?;
     run_step(5, "Duplication", run_duplication)?;
 
@@ -70,9 +70,16 @@ fn run_clippy() -> Result<String, String> {
     }
 }
 
-/// Test step -- returns empty detail on success.
+/// Test step -- runs xtask's own tests only.
+///
+/// Coverage (step 4) runs `--workspace --exclude xtask`
+/// under llvm-cov instrumentation, which executes every
+/// non-xtask test. Running the full workspace tests
+/// here too would duplicate that work. Restricting to
+/// `-p xtask` keeps validate a full quality gate
+/// without paying the duplication cost.
 fn run_test() -> Result<String, String> {
-    test_cmd::test_check(None)?;
+    test_cmd::test_check_xtask()?;
     Ok(String::new())
 }
 
@@ -80,8 +87,12 @@ fn run_test() -> Result<String, String> {
 fn run_coverage() -> Result<String, String> {
     let r = coverage::coverage_check()?;
     match r.error {
-        None => Ok(format!("{:.1}% >= {}%", r.line_pct, coverage::THRESHOLD,)),
-        Some(err) => Err(err),
+        None => Ok(format!(
+            "{:.1}% >= {}%",
+            r.line_pct,
+            coverage::OVERALL_THRESHOLD,
+        )),
+        Some(failure) => Err(coverage::format_failure(&failure)),
     }
 }
 

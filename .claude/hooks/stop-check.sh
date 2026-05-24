@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
-# Stop hook: runs cargo xtask validate when Rust files
-# have been modified.
+# Stop hook: runs a fast-path subset of validate when
+# Rust files have been modified -- fmt-check + clippy
+# + tests.
+#
+# Coverage and duplication are intentionally skipped:
+# coverage alone adds ~15s per invocation on a small
+# codebase, and the Stop hook fires often enough during
+# interactive work that the cost compounds. Full
+# `cargo xtask validate` still runs from /commit and
+# is available manually for explicit pre-flight checks.
+#
+# fmt-check is included (~0.2s) because /commit only
+# runs full validate for version-bumping commits;
+# chore / docs / refactor / test commits skip validate
+# entirely, so a fmt drift can otherwise slip through
+# both interactive gates and land in CI as a fmt-check
+# failure (see commit 9d7b3ff for a worked example).
 #
 # Exit codes:
 #   0 -- all checks passed (or nothing to check)
@@ -31,7 +46,26 @@ if [ -z "$changed_rs" ]; then
 fi
 
 # --- Run checks ------------------------------------------
-output=$(cargo xtask validate 2>&1) || {
-  echo "$output" >&2
-  exit 2
+# Stages run sequentially. A `cmd1 && cmd2 && cmd3`
+# chain captured into a single `$output` would, on
+# multi-stage failures, only contain the first failing
+# stage's output AND drop the label of which stage
+# failed -- so when Claude fixed clippy the test
+# failure would resurface looking "new" on the next
+# hook run, defeating the `stop_hook_active` guard
+# above.
+run_stage() {
+  local label="$1"
+  shift
+  local stage_output
+  if ! stage_output=$("$@" 2>&1); then
+    printf '=== %s failed ===\n%s\n' "$label" "$stage_output" >&2
+    return 1
+  fi
+  return 0
 }
+
+run_stage "cargo fmt --check" cargo fmt --all -- --check \
+  && run_stage "cargo xtask clippy" cargo xtask clippy \
+  && run_stage "cargo xtask test" cargo xtask test \
+  || exit 2
